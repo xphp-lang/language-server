@@ -1,0 +1,5 @@
+/vendor/
+/var/
+.phpunit.result.cache
+.infection.json5.tmp.log
+/docker-compose.override.yml
