@@ -1,0 +1,12 @@
+services:
+  php:
+    build:
+      dockerfile: .docker/php.Dockerfile
+    working_dir: /opt/app
+    volumes:
+      - ./:/opt/app
+    environment:
+      XDEBUG_MODE: coverage,develop
+
+volumes:
+  composer_cache: ~

@@ -1,0 +1,44 @@
+{
+    "name": "xphp-lang/language-server",
+    "description": "Language Server Protocol implementation for xphp. Powers diagnostics, hover, go-to-definition and completion in VS Code (and any LSP-aware editor) by reusing the xphp parser AST + Registry directly.",
+    "homepage": "https://github.com/xphp-lang/language-server",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "xphp",
+        "php",
+        "generics",
+        "transpiler",
+        "monomorphization",
+        "type-system"
+    ],
+    "require": {
+        "php": "^8.4.0",
+        "jetbrains/phpstorm-stubs": "^2026.1",
+        "phpactor/language-server": "^6.0",
+        "phpactor/language-server-protocol": "^3.5",
+        "phpactor/worse-reflection": "^0.6.0",
+        "xphp-lang/xphp": "^0.1.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^13.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "XPHP\\Lsp\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "XPHP\\Lsp\\Test\\": "test/"
+        }
+    },
+    "bin": [
+        "bin/xphp-lsp"
+    ],
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
