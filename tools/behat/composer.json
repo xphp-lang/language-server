@@ -1,0 +1,13 @@
+{
+    "//": "Isolated Behat tooling install. Behat 3.x caps symfony/console at ^7, but the root project pins symfony/console ^8 (via xphp-lang/xphp), so Behat cannot live in the root require-dev. Installing it here keeps its symfony 7 dependency tree separate. The files-autoload pulls in the ROOT project's autoloader so the FeatureContext can resolve XPHP\\Lsp\\* (and phpactor/amp) classes; Behat's own loader is registered first, so its symfony/console 7 wins over the root's 8 (which is never referenced at runtime by the handlers anyway).",
+    "require": {
+        "behat/behat": "^3.18",
+        "psr/log": "1.1.4"
+    },
+    "autoload": {
+        "files": ["bootstrap.php", "../../vendor/autoload.php"]
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

@@ -1,0 +1,10 @@
+default:
+    suites:
+        default:
+            paths:
+                - '%paths.base%/features'
+            # FeatureContext lives under test/ and is resolved by the root
+            # project's PSR-4 autoload-dev (XPHP\Lsp\Test\ -> test/), which the
+            # isolated Behat install pulls in via its files-autoload.
+            contexts:
+                - 'XPHP\Lsp\Test\Behat\FeatureContext'

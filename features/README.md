@@ -30,3 +30,27 @@ The fixtures mirror the sibling `xphp` package's
 - `cross_file_definition.feature` — go-to-definition resolves across files.
 - `cross_file_hover.feature` — hover resolves and substitutes generics across files.
 - `inlay_hints.feature` — assignment inlay hints show substituted concrete types.
+
+## Running
+
+```sh
+make test/behat            # sequential
+make test/behat/parallel   # one process per feature file
+```
+
+The step definitions live in `test/Behat/FeatureContext.php` and drive the real
+handlers against a fully **in-memory** workspace (each fixture is opened as a
+`TextDocumentItem`; nothing is written to disk). Every scenario builds its own
+workspace + handler stack, so the run is parallel-safe — sharding feature files
+across processes produces identical, deterministic results.
+
+Behat is installed in an isolated tooling dir (`tools/behat/`) rather than the
+root `require-dev`, because Behat 3.x caps `symfony/console` at `^7` while the
+project pins `^8` via `xphp-lang/xphp`. `make test/behat` bootstraps it on first
+run (`composer install --working-dir=tools/behat`).
+
+These specs run **strict**: scenarios are written to the desired behavior, so
+the ones the server doesn't yet satisfy (FQN-vs-short-name inlay labels, the
+`new Collection<User>()` instantiation hint, the substituted hover signatures,
+the generic-method definition jump) fail by design. They are an executable
+backlog, which is why Behat is **not** part of the `make test/unit` gate.

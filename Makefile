@@ -87,3 +87,30 @@ build/phar: $(BOX_PHAR)
 	php -d phar.readonly=0 var/box.phar compile --no-interaction
 	composer install --quiet --no-interaction
 	@echo "==> Built $$(ls -lh var/xphp-lsp.phar | awk '{print $$5, $$9}')"
+
+# Behat lives in an isolated tooling install (tools/behat) because Behat 3.x
+# caps symfony/console at ^7 while the root project pins ^8 via xphp-lang/xphp.
+# Its files-autoload pulls in the root autoloader so the FeatureContext resolves
+# XPHP\Lsp\* classes. The Gherkin specs run STRICT: scenarios that don't match
+# current behavior fail by design (an executable backlog), so this target is
+# deliberately NOT part of the `test/unit` gate.
+BEHAT := tools/behat/vendor/bin/behat
+BEHAT_FLAGS := -c behat.dist.yml --colors
+
+tools/behat/vendor/bin/behat:
+	composer install --working-dir=tools/behat --quiet
+
+.PHONY: test/behat
+test/behat: $(BEHAT)
+	php -d error_reporting='E_ALL & ~E_DEPRECATED' $(BEHAT) $(BEHAT_FLAGS)
+
+# Each feature file runs in its own process. Safe because every scenario builds
+# its own in-memory workspace -- no shared files/DB/ports. The one shared
+# resource is the read-only PHP-stubs cache; the pre-warm run below populates it
+# once (sequentially) so the parallel fan-out only ever reads it.
+.PHONY: test/behat/parallel
+test/behat/parallel: $(BEHAT)
+	@echo "==> warming shared stub cache"
+	@php $(BEHAT) $(BEHAT_FLAGS) features/cross_file_definition.feature >/dev/null 2>&1 || true
+	ls features/*.feature | xargs -P 4 -I{} \
+	  php -d error_reporting='E_ALL & ~E_DEPRECATED' $(BEHAT) $(BEHAT_FLAGS) {}
