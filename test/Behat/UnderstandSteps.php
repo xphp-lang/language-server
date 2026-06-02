@@ -69,6 +69,33 @@ trait UnderstandSteps
     }
 
     /**
+     * @Then the response contains :count folding ranges
+     */
+    public function theResponseContainsFoldingRanges(int $count): void
+    {
+        $this->assert(is_array($this->lastResponse), 'expected a folding-range list response');
+        $this->assert(
+            count($this->lastResponse) === $count,
+            sprintf('expected %d folding ranges, got %d', $count, count($this->lastResponse)),
+        );
+    }
+
+    /**
+     * @Then a folding range spans lines :start to :end
+     */
+    public function aFoldingRangeSpansLinesTo(int $start, int $end): void
+    {
+        $seen = [];
+        foreach ((array) $this->lastResponse as $range) {
+            $seen[] = sprintf('%d-%d', $range->startLine, $range->endLine);
+            if ($range->startLine === $start && $range->endLine === $end) {
+                return;
+            }
+        }
+        $this->fail(sprintf('expected a folding range %d-%d; got: [%s]', $start, $end, implode(', ', $seen)));
+    }
+
+    /**
      * @Then there is no hover
      */
     public function thereIsNoHover(): void
