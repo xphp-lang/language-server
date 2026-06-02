@@ -177,15 +177,16 @@ trait EditSteps
     }
 
     /**
-     * @Then the resolved lens is titled :title
+     * @Then the resolved lens mentions a usage count
      */
-    public function theResolvedLensIsTitled(string $title): void
+    public function theResolvedLensMentionsAUsageCount(): void
     {
         $lens = $this->lastResponse;
         $this->assert($lens instanceof CodeLens && $lens->command !== null, 'expected a resolved code lens with a command');
+        $title = $lens->command->title;
         $this->assert(
-            $lens->command->title === $title,
-            sprintf('expected resolved lens titled "%s", got "%s"', $title, $lens->command->title),
+            preg_match('/^\d+ usages?$/', $title) === 1,
+            sprintf('expected resolved lens to read "<n> usage(s)", got "%s"', $title),
         );
     }
 }
