@@ -17,10 +17,15 @@ trait NavigateSteps
     public function theResponsePointsTo(string $path): void
     {
         $location = $this->expectLocation();
-        $this->assert(
-            $location->uri === $path || $this->stripFileScheme($location->uri) === $path,
-            sprintf('expected response to point to "%s", got "%s"', $path, $location->uri),
-        );
+        $uri = $location->uri;
+        $bare = $this->stripFileScheme($uri);
+        // Open-doc handlers return the bare workspace uri; worse-reflection-backed
+        // handlers (typeDefinition) emit file:// URIs -- accept either.
+        $ok = $uri === $path
+            || $bare === $path
+            || str_ends_with($uri, '/' . $path)
+            || str_ends_with($bare, '/' . $path);
+        $this->assert($ok, sprintf('expected response to point to "%s", got "%s"', $path, $uri));
     }
 
     /**

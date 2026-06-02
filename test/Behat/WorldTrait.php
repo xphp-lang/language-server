@@ -15,6 +15,7 @@ use Phpactor\LanguageServerProtocol\Position;
 use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use Phpactor\LanguageServerProtocol\TextDocumentItem;
+use Phpactor\LanguageServerProtocol\TypeDefinitionParams;
 
 use function Amp\Promise\wait;
 use XPHP\Lsp\Analyzer\Analyzer;
@@ -129,6 +130,7 @@ trait WorldTrait
 
         $this->lastResponse = match ($method) {
             'textDocument/definition' => wait($this->handler('definition')->definition(new DefinitionParams($doc, $pos))),
+            'textDocument/typeDefinition' => wait($this->handler('typeDefinition')->typeDefinition(new TypeDefinitionParams($doc, $pos))),
             'textDocument/hover' => wait($this->handler('hover')->hover(new HoverParams($doc, $pos))),
             default => throw new \RuntimeException("Unsupported position method: {$method}"),
         };
