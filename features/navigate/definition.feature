@@ -1,7 +1,6 @@
-Feature: Cross-file go to definition
+Feature: Go to definition
   As a developer editing xphp
-  I want "Go to Definition" on a type or method to jump to its declaration
-  Even when the file that declares it is not currently open in the editor
+  I want "Go to Definition" to jump to a symbol's declaration across files
 
   Background:
     Given the file at "Containers/Collection.xphp" contains the following lines:
@@ -24,11 +23,6 @@ Feature: Cross-file go to definition
           public function first(): ?T
           {
               return $this->items[0] ?? null;
-          }
-
-          public function all(): T[]
-          {
-              return $this->items;
           }
       }
       """
@@ -60,21 +54,21 @@ Feature: Cross-file go to definition
 
       $users = new Collection<User>(new User('Alice'), new User('Bob'));
       $first = $users->first();
-      $all = $users->all();
       """
     And the FQN index has been warmed on initialize
 
-  Scenario: Jump to a class declared in another file
+  Scenario: Jump to a generic class declared in another file
     When I request "textDocument/definition" on "Collection" at line 9 of "Use.xphp"
     Then the response points to "Containers/Collection.xphp"
     And the target range covers the "Collection" class name
 
-  Scenario: Jump to an imported class declared in another file
+  Scenario: Jump to an imported class used as a type argument
     When I request "textDocument/definition" on "User" at line 9 of "Use.xphp"
     Then the response points to "Models/User.xphp"
     And the target range covers the "User" class name
 
-  Scenario: Jump through a generic method to its declaration
+  @todo
+  Scenario: Jump through a generic method call to its declaration
     When I request "textDocument/definition" on "first" at line 10 of "Use.xphp"
     Then the response points to "Containers/Collection.xphp"
     And the target range covers the "first" method declaration

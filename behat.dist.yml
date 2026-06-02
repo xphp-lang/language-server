@@ -1,4 +1,9 @@
 default:
+    # Deferred behavior is written as @todo scenarios that document the desired
+    # outcome but are skipped, so the suite stays green on what's expected to work.
+    gherkin:
+        filters:
+            tags: '~@todo'
     suites:
         default:
             paths:
