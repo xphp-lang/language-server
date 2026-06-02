@@ -30,10 +30,18 @@ use XPHP\Lsp\PositionMap;
  * `vscode-languageclient`) render the tokens with their built-in
  * "semantic" coloring -- no per-editor theme work required.
  *
- * Slice 1 (this commit): handler advertises capability + dispatches
- * to {@see AstVisitor}, but the visitor emits no tokens.  The
- * client receives an empty `data: []` and renders unchanged.
- * Subsequent slices extend the visitor.
+ * The handler advertises the capability and dispatches to
+ * {@see AstVisitor}, which emits the file's tokens: keywords,
+ * variables, numbers, strings, comments, declaration names
+ * (class / interface / enum / method / function / property /
+ * parameter), and `typeParameter` for every xphp generic `T` --
+ * both inside `<...>` clauses and reified-`T` uses (`new T()`,
+ * `instanceof T`, `T::class`) in generic class bodies.
+ *
+ * Remaining limitation: token `length` is byte-counted, so a
+ * multi-byte identifier is off by the UTF-8/UTF-16 delta (LSP
+ * wants UTF-16 code units).  ASCII identifiers -- the vast
+ * majority -- are exact.  See {@see AstVisitor::emit}.
  *
  * Server-capability shape: an ARRAY value, not a class instance.
  * The phpactor JSON serializer null-strips empty options classes,

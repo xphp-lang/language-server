@@ -21,11 +21,13 @@ use Phpactor\LanguageServerProtocol\CodeAction;
  * expensive to do for every potential action the editor's
  * lightbulb might render.
  *
- * Currently scaffolding -- there are no actions to resolve yet
- * (see XphpCodeActionHandler).  Once specific quick-fixes land,
- * each emits a `data` payload identifying its kind + target, and
- * this handler dispatches on that payload to construct the
- * WorkspaceEdit.
+ * Currently a no-op: every action {@see XphpCodeActionHandler}
+ * returns already carries its WorkspaceEdit eagerly, so the client
+ * applies the fix directly and never round-trips through
+ * `codeAction/resolve`.  The handler stays registered as a hook
+ * for any future fix expensive enough to emit a lightweight item
+ * up-front (with a `data` payload identifying its kind + target)
+ * and defer WorkspaceEdit construction to here.
  *
  * Available since IntelliJ Platform 2024.2.
  */
@@ -43,10 +45,10 @@ final class XphpCodeActionResolveHandler implements Handler
      */
     public function resolve(CodeAction $action): Promise
     {
-        // No-op for now -- XphpCodeActionHandler emits an empty
-        // action list, so this method is never called in
-        // practice.  Future commits will add per-kind dispatch
-        // here.
+        // No-op -- XphpCodeActionHandler attaches every action's
+        // WorkspaceEdit eagerly, so the client never round-trips
+        // here.  Future fixes that defer their edit would add
+        // per-kind dispatch on `$action->data` at this point.
         return new Success($action);
     }
 }
