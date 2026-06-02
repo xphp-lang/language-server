@@ -7,6 +7,12 @@ namespace XPHP\Lsp\Test\Behat;
 use Phpactor\LanguageServerProtocol\Hover;
 use Phpactor\LanguageServerProtocol\InlayHint;
 use Phpactor\LanguageServerProtocol\MarkupContent;
+use Phpactor\LanguageServerProtocol\Position;
+use Phpactor\LanguageServerProtocol\SignatureHelp;
+use Phpactor\LanguageServerProtocol\SignatureHelpParams;
+use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
+
+use function Amp\Promise\wait;
 
 /**
  * Steps for the Understand theme: hover, signature help, inlay hints, folding
@@ -14,6 +20,46 @@ use Phpactor\LanguageServerProtocol\MarkupContent;
  */
 trait UnderstandSteps
 {
+    /**
+     * @When I request signature help after :needle at line :line of :path
+     */
+    public function iRequestSignatureHelpAfterAtLineOf(string $needle, int $line, string $path): void
+    {
+        $start = $this->positionOfNeedle($path, $line, $needle);
+        $cursor = new Position($start->line, $start->character + strlen($needle));
+        $params = new SignatureHelpParams(new TextDocumentIdentifier($path), $cursor);
+        $this->lastResponse = wait($this->handler('signatureHelp')->signatureHelp($params));
+    }
+
+    /**
+     * @Then the active signature label contains :text
+     */
+    public function theActiveSignatureLabelContains(string $text): void
+    {
+        $help = $this->lastResponse;
+        $this->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
+        $index = $help->activeSignature ?? 0;
+        $signature = $help->signatures[$index] ?? $help->signatures[0] ?? null;
+        $this->assert($signature !== null, 'expected at least one signature');
+        $this->assert(
+            str_contains($signature->label, $text),
+            sprintf('expected active signature label to contain "%s", got "%s"', $text, $signature->label),
+        );
+    }
+
+    /**
+     * @Then the active parameter is :index
+     */
+    public function theActiveParameterIs(int $index): void
+    {
+        $help = $this->lastResponse;
+        $this->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
+        $this->assert(
+            $help->activeParameter === $index,
+            sprintf('expected active parameter %d, got %s', $index, var_export($help->activeParameter, true)),
+        );
+    }
+
     /**
      * @Then the hover contents contain :text
      */
