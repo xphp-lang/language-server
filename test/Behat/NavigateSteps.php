@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace XPHP\Lsp\Test\Behat;
 
+use Phpactor\LanguageServerProtocol\DocumentSymbol;
+use Phpactor\LanguageServerProtocol\SymbolKind;
+
 /**
  * Steps for the Navigate theme: definition, type-definition, references,
  * implementation, document/workspace symbols, document highlight, and the call
@@ -38,6 +41,54 @@ trait NavigateSteps
             count($uris) === $count,
             sprintf('expected %d locations, got %d: [%s]', $count, count($uris), implode(', ', $uris)),
         );
+    }
+
+    /**
+     * @Then the document outline contains a :kind named :name
+     */
+    public function theDocumentOutlineContainsANamed(string $kind, string $name): void
+    {
+        $this->assert(is_array($this->lastResponse), 'expected a document-symbol list response');
+        $wantKind = $this->symbolKind($kind);
+        $found = $this->findSymbol($this->lastResponse, $name, $wantKind);
+        $this->assert(
+            $found,
+            sprintf('expected outline to contain a %s named "%s"', $kind, $name),
+        );
+    }
+
+    /**
+     * @param list<DocumentSymbol> $symbols
+     */
+    private function findSymbol(array $symbols, string $name, int $kind): bool
+    {
+        foreach ($symbols as $symbol) {
+            if (!$symbol instanceof DocumentSymbol) {
+                continue;
+            }
+            if ($symbol->name === $name && $symbol->kind === $kind) {
+                return true;
+            }
+            if (is_array($symbol->children) && $this->findSymbol($symbol->children, $name, $kind)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function symbolKind(string $kind): int
+    {
+        return match ($kind) {
+            'class' => SymbolKind::CLASS_,
+            'interface' => SymbolKind::INTERFACE,
+            'enum' => SymbolKind::ENUM,
+            'method' => SymbolKind::METHOD,
+            'constructor' => SymbolKind::CONSTRUCTOR,
+            'property' => SymbolKind::PROPERTY,
+            'constant' => SymbolKind::CONSTANT,
+            'function' => SymbolKind::FUNCTION,
+            default => throw new \RuntimeException("unknown symbol kind: {$kind}"),
+        };
     }
 
     /**

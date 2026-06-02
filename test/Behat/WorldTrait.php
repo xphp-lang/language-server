@@ -9,6 +9,8 @@ use PhpParser\ParserFactory;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServerProtocol\DefinitionParams;
 use Phpactor\LanguageServerProtocol\DocumentHighlightParams;
+use Phpactor\LanguageServerProtocol\DocumentSymbolParams;
+use Phpactor\LanguageServerProtocol\FoldingRangeParams;
 use Phpactor\LanguageServerProtocol\HoverParams;
 use Phpactor\LanguageServerProtocol\ImplementationParams;
 use Phpactor\LanguageServerProtocol\InlayHintParams;
@@ -140,6 +142,23 @@ trait WorldTrait
             'textDocument/documentHighlight' => wait($this->handler('documentHighlight')->documentHighlight(new DocumentHighlightParams($doc, $pos))),
             'textDocument/hover' => wait($this->handler('hover')->hover(new HoverParams($doc, $pos))),
             default => throw new \RuntimeException("Unsupported position method: {$method}"),
+        };
+    }
+
+    /**
+     * Document-level requests (no cursor).
+     *
+     * @When I request :method for :path
+     */
+    public function iRequestForDocument(string $method, string $path): void
+    {
+        $doc = new TextDocumentIdentifier($path);
+
+        $this->lastResponse = match ($method) {
+            'textDocument/documentSymbol' => wait($this->handler('documentSymbol')->documentSymbol(new DocumentSymbolParams($doc))),
+            'textDocument/foldingRange' => wait($this->handler('folding')->foldingRange(new FoldingRangeParams($doc))),
+            'textDocument/semanticTokens/full' => wait($this->handler('semanticTokens')->semanticTokensFull(['uri' => $path])),
+            default => throw new \RuntimeException("Unsupported document method: {$method}"),
         };
     }
 
