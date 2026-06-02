@@ -56,10 +56,15 @@ use function Amp\Promise\wait;
  */
 final class FeatureContext implements Context
 {
-    /** @var array<string, string> path -> source */
+    /** @var array<string, string> path -> source (for needle/position lookups) */
     private array $sources = [];
 
-    private ?PhpactorWorkspace $workspace = null;
+    /**
+     * One workspace per scenario; every fixture is opened into it, so scenarios
+     * that declare several files exercise a multi-document workspace.
+     */
+    private readonly PhpactorWorkspace $workspace;
+    private bool $handlersBuilt = false;
     private ?XphpDefinitionHandler $definitionHandler = null;
     private ?XphpHoverHandler $hoverHandler = null;
     private ?XphpInlayHintHandler $inlayHandler = null;
@@ -67,14 +72,24 @@ final class FeatureContext implements Context
     /** Last definition/hover/inlay response. */
     private mixed $lastResponse = null;
 
+    public function __construct()
+    {
+        // Behat instantiates a fresh context per scenario, so this workspace is
+        // isolated to one scenario.
+        $this->workspace = new PhpactorWorkspace();
+    }
+
     /**
      * @Given the file at :path contains the following lines:
      */
     public function theFileAtContainsTheFollowingLines(string $path, PyStringNode $lines): void
     {
-        $this->sources[$path] = $lines->getRaw();
-        // A new fixture invalidates any already-built world.
-        $this->workspace = null;
+        $source = $lines->getRaw();
+        $this->sources[$path] = $source;
+        // Open the fixture into the shared workspace. Multiple files accumulate
+        // here; the handler stack resolves against the live workspace, so every
+        // open document is visible regardless of declaration order.
+        $this->workspace->open(new TextDocumentItem($path, 'xphp', 1, $source));
     }
 
     /**
@@ -82,7 +97,7 @@ final class FeatureContext implements Context
      */
     public function theFqnIndexHasBeenWarmedOnInitialize(): void
     {
-        $this->buildWorld();
+        $this->buildHandlers();
     }
 
     /**
@@ -90,7 +105,7 @@ final class FeatureContext implements Context
      */
     public function iRequestOnAtLineOf(string $method, string $needle, int $line, string $path): void
     {
-        $this->buildWorld();
+        $this->buildHandlers();
         [$pos, ] = $this->positionOfNeedle($path, $line, $needle);
         $params = new TextDocumentIdentifier($path);
 
@@ -106,7 +121,7 @@ final class FeatureContext implements Context
      */
     public function iRequestForTheVisibleRangeOf(string $method, string $path): void
     {
-        $this->buildWorld();
+        $this->buildHandlers();
         if ($method !== 'textDocument/inlayHint') {
             throw new \RuntimeException("Unsupported range method: {$method}");
         }
@@ -192,16 +207,16 @@ final class FeatureContext implements Context
 
     // ---- harness internals -------------------------------------------------
 
-    private function buildWorld(): void
+    private function buildHandlers(): void
     {
-        if ($this->workspace !== null) {
+        if ($this->handlersBuilt) {
             return;
         }
 
-        $workspace = new PhpactorWorkspace();
-        foreach ($this->sources as $path => $source) {
-            $workspace->open(new TextDocumentItem($path, 'xphp', 1, $source));
-        }
+        // The handler stack resolves against the live workspace -- it walks the
+        // open documents on every query -- so it is safe to build once even if
+        // more files are opened afterwards.
+        $workspace = $this->workspace;
 
         $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
         $cache = new ParsedDocumentCache(new Analyzer($parser));
@@ -226,7 +241,6 @@ final class FeatureContext implements Context
         $phpHoverResolver = new PhpHoverResolver($workspace, $parser, $reflector, $genericParams, $genericResolver);
         $referenceFinder = new ReferenceFinder($workspace, $cache, $fqnIndex, $parser, $reflector, $genericResolver);
 
-        $this->workspace = $workspace;
         $this->definitionHandler = new XphpDefinitionHandler(
             $workspace,
             $cache,
@@ -237,6 +251,7 @@ final class FeatureContext implements Context
         );
         $this->hoverHandler = new XphpHoverHandler($workspace, $cache, $phpHoverResolver);
         $this->inlayHandler = new XphpInlayHintHandler($workspace, $cache, $genericResolver);
+        $this->handlersBuilt = true;
     }
 
     /**
