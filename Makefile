@@ -111,6 +111,6 @@ test/behat: $(BEHAT)
 .PHONY: test/behat/parallel
 test/behat/parallel: $(BEHAT)
 	@echo "==> warming shared stub cache"
-	@php $(BEHAT) $(BEHAT_FLAGS) features/cross_file_definition.feature >/dev/null 2>&1 || true
-	ls features/*.feature | xargs -P 4 -I{} \
+	@php $(BEHAT) $(BEHAT_FLAGS) features/navigate/definition.feature >/dev/null 2>&1 || true
+	find features -name '*.feature' | xargs -P 4 -I{} \
 	  php -d error_reporting='E_ALL & ~E_DEPRECATED' $(BEHAT) $(BEHAT_FLAGS) {}

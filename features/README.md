@@ -1,35 +1,35 @@
 # Behavior specifications (Gherkin)
 
-These `.feature` files specify **expected** Language Server behavior, focused on
-cross-file resolution: navigation, hover, and inlay hints must resolve a symbol
-through the warmed filesystem index — independent of which files happen to be
-open in the editor.
+Executable acceptance specs for the xphp language server, organized by theme.
+Each scenario drives the real LSP handlers against a fully **in-memory**
+workspace (every fixture is opened as a `TextDocumentItem`; nothing is written
+to disk), so the suite is isolated and parallel-safe.
 
-Each scenario is arranged as **Given** / **When** / **Then**:
+```
+features/
+├── navigate/   definition, type-definition, references, implementation,
+│               document & workspace symbols, document highlight,
+│               call hierarchy, type hierarchy
+├── edit/       rename, code actions, code lens, willRenameFiles
+├── understand/ hover, signature help, inlay hints, folding ranges, semantic tokens
+├── validate/   diagnostics (parse, undefined-name, bound, ctor-arg, duplicate)
+└── find/       completion, completion-item resolve
+```
 
-- **Given** — the workspace fixture files and their contents
-  (`the file at "<path>" contains the following lines:`), plus the warmed FQN
-  index. Stating contents rather than editor state keeps the arrange reusable
-  across every scenario via `Background`.
-- **When** — a single LSP request against a position in `Use.xphp`.
-- **Then** — assert the response (target file + range, hover signature, or
-  rendered inlay hint).
+Each scenario is arranged **Given** (fixture file contents + warmed FQN index) /
+**When** (one LSP request) / **Then** (assert the response). Fixtures use
+leading-slash URIs (`/Foo.xphp`) for handlers that go through worse-reflection.
 
-They are written against the LSP request/response contract so they can later be
-driven by a headless client harness; there is no Behat wiring yet.
+## Step definitions
 
-The fixtures mirror the sibling `xphp` package's
-`test/fixture/compile/array_sugar/source/`:
+The step definitions live in `test/Behat/`, split to mirror the themes:
 
-- `Use.xphp` — uses `Collection<User>`, calls `->first()` / `->all()`.
-- `Containers/Collection.xphp` — `class Collection<T>` with `first(): ?T`, `all(): T[]`.
-- `Models/User.xphp` — `final class User`.
-
-## Files
-
-- `cross_file_definition.feature` — go-to-definition resolves across files.
-- `cross_file_hover.feature` — hover resolves and substitutes generics across files.
-- `inlay_hints.feature` — assignment inlay hints show substituted concrete types.
+- `WorldTrait` — the shared world: the workspace, the full handler stack
+  (mirrors `LspDispatcherFactory` with an empty rootPath), the fixture Givens,
+  and the position/assertion helpers.
+- `NavigateSteps`, `EditSteps`, `UnderstandSteps`, `ValidateSteps`, `FindSteps`
+  — the When/Then steps for each theme.
+- `FeatureContext` — a thin aggregator that composes the traits.
 
 ## Running
 
@@ -38,19 +38,17 @@ make test/behat            # sequential
 make test/behat/parallel   # one process per feature file
 ```
 
-The step definitions live in `test/Behat/FeatureContext.php` and drive the real
-handlers against a fully **in-memory** workspace (each fixture is opened as a
-`TextDocumentItem`; nothing is written to disk). Every scenario builds its own
-workspace + handler stack, so the run is parallel-safe — sharding feature files
-across processes produces identical, deterministic results.
+Behat is installed in an isolated tooling dir (`tools/behat/`) because Behat 3.x
+caps `symfony/console` at `^7` while the project pins `^8` via `xphp-lang/xphp`.
+`make test/behat` bootstraps it on first run.
 
-Behat is installed in an isolated tooling dir (`tools/behat/`) rather than the
-root `require-dev`, because Behat 3.x caps `symfony/console` at `^7` while the
-project pins `^8` via `xphp-lang/xphp`. `make test/behat` bootstraps it on first
-run (`composer install --working-dir=tools/behat`).
+## @todo scenarios
 
-These specs run **strict**: scenarios are written to the desired behavior, so
-the ones the server doesn't yet satisfy (FQN-vs-short-name inlay labels, the
-`new Collection<User>()` instantiation hint, the substituted hover signatures,
-the generic-method definition jump) fail by design. They are an executable
-backlog, which is why Behat is **not** part of the `make test/unit` gate.
+Deferred behavior is written as `@todo` scenarios that document the desired
+outcome but are skipped (via the gherkin tag filter in `behat.dist.yml`), so the
+suite stays green on what's expected to work. Current `@todo`s:
+
+- go-to-definition through a generic **method** call (navigate/definition)
+- **duplicate-template** diagnostic on the edited file — the per-file pull
+  provider canonicalizes the edited file, so it surfaces on the other file;
+  needs the roadmap's cross-file diagnostic broadcast (validate/diagnostics)
