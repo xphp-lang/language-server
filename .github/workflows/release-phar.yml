@@ -1,0 +1,99 @@
+name: Release PHAR
+
+# Build the xphp-lsp PHAR and attach it to the GitHub Release on every
+# version tag (composer does the same thing for its own releases:
+# https://github.com/composer/composer/releases). Pushing a tag like
+# `v0.2.0` creates the Release if it doesn't exist yet and uploads:
+#   - xphp-lsp.phar          the compiled, self-contained language server
+#   - xphp-lsp.phar.sha256   checksum so downstreams can verify integrity
+#
+# The build reuses `make build/phar` (Humbug Box, pinned in the Makefile)
+# so local and CI builds stay byte-for-byte identical.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Allow a manual rebuild against a chosen ref without retagging.
+  workflow_dispatch:
+
+# Per-workflow concurrency. See ci-lsp.yml for the rationale.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  # Required for softprops/action-gh-release to create/update the Release
+  # and upload assets.
+  contents: write
+
+jobs:
+  build-phar:
+    name: Build & publish PHAR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, json, mbstring, tokenizer, phar
+          coverage: none
+          # phar.readonly must be off so Box can write the archive; the
+          # Makefile already passes `-d phar.readonly=0` to the compile step,
+          # but set it at the ini level too for any other phar tooling.
+          ini-values: phar.readonly=0
+          tools: composer:v2
+
+      - name: Build PHAR
+        # `make build/phar` lazily downloads box.phar (version pinned in the
+        # Makefile), runs `composer install --no-dev --classmap-authoritative`,
+        # compiles to var/xphp-lsp.phar, then restores the dev install.
+        run: make build/phar
+
+      - name: Generate checksum
+        run: |
+          cd var
+          sha256sum xphp-lsp.phar > xphp-lsp.phar.sha256
+          cat xphp-lsp.phar.sha256
+
+      - name: Smoke-test the PHAR
+        # Fail the release early if the compiled archive can't boot. The LSP
+        # speaks over stdio and has no --version flag, so we feed it empty
+        # stdin under a timeout: the server boots, sees EOF, and exits. A
+        # broken archive (missing class, autoload fatal) instead dies with a
+        # non-zero status before reaching the read loop, failing the job.
+        # `timeout` returning 124 (server stayed up the full window) is also
+        # treated as a healthy boot.
+        run: |
+          timeout 10s php var/xphp-lsp.phar </dev/null; status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            echo "PHAR failed to boot (exit $status)"
+            exit 1
+          fi
+          echo "PHAR booted cleanly (exit $status)"
+
+      - name: Upload build artifact
+        # Always keep the PHAR as a workflow artifact too, so manual
+        # (workflow_dispatch) runs that aren't tied to a tag still produce a
+        # downloadable build.
+        uses: actions/upload-artifact@v4
+        with:
+          name: xphp-lsp-phar
+          path: |
+            var/xphp-lsp.phar
+            var/xphp-lsp.phar.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish to GitHub Release
+        # Only attach to a Release when triggered by a tag push. Creates the
+        # Release if it doesn't already exist.
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            var/xphp-lsp.phar
+            var/xphp-lsp.phar.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
