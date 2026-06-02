@@ -8,9 +8,11 @@ use Phpactor\LanguageServerProtocol\Hover;
 use Phpactor\LanguageServerProtocol\InlayHint;
 use Phpactor\LanguageServerProtocol\MarkupContent;
 use Phpactor\LanguageServerProtocol\Position;
+use Phpactor\LanguageServerProtocol\SemanticTokens;
 use Phpactor\LanguageServerProtocol\SignatureHelp;
 use Phpactor\LanguageServerProtocol\SignatureHelpParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
+use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
 
 use function Amp\Promise\wait;
 
@@ -66,6 +68,36 @@ trait UnderstandSteps
     public function theHoverContentsContain(string $text): void
     {
         $this->assertHoverContains($text);
+    }
+
+    /**
+     * @Then the semantic tokens are non-empty
+     */
+    public function theSemanticTokensAreNonEmpty(): void
+    {
+        $tokens = $this->lastResponse;
+        $this->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
+        $this->assert($tokens->data !== [], 'expected a non-empty token stream');
+        $this->assert(count($tokens->data) % 5 === 0, 'expected the token stream length to be a multiple of 5');
+    }
+
+    /**
+     * @Then the semantic tokens include a :type token
+     */
+    public function theSemanticTokensIncludeAToken(string $type): void
+    {
+        $tokens = $this->lastResponse;
+        $this->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
+        $typeIndex = array_search($type, TokenLegend::TOKEN_TYPES, true);
+        $this->assert($typeIndex !== false, "unknown token type: {$type}");
+
+        // Packed as 5 ints per token; the type index is the 4th of each tuple.
+        for ($i = 0; $i + 4 < count($tokens->data); $i += 5) {
+            if ($tokens->data[$i + 3] === $typeIndex) {
+                return;
+            }
+        }
+        $this->fail(sprintf('expected a "%s" (index %d) token in the stream', $type, $typeIndex));
     }
 
     /**
