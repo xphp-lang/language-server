@@ -147,6 +147,60 @@ trait NavigateSteps
         return ['uri' => $fallbackUri, 'data' => []];
     }
 
+    // ---- type hierarchy ----------------------------------------------------
+
+    /**
+     * @When I prepare type hierarchy on :needle at line :line of :path
+     */
+    public function iPrepareTypeHierarchyOnAtLineOf(string $needle, int $line, string $path): void
+    {
+        $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->positionOfNeedle($path, $line, $needle));
+        $items = wait($this->handler('typeHierarchy')->prepare($params));
+        $this->lastResponse = $items;
+        $this->hierarchyItem = $this->itemDict($items[0] ?? null, $path);
+    }
+
+    /**
+     * @When I request supertypes
+     */
+    public function iRequestSupertypes(): void
+    {
+        $this->lastResponse = wait($this->handler('typeHierarchy')->supertypes($this->hierarchyItem));
+    }
+
+    /**
+     * @When I request subtypes
+     */
+    public function iRequestSubtypes(): void
+    {
+        $this->lastResponse = wait($this->handler('typeHierarchy')->subtypes($this->hierarchyItem));
+    }
+
+    /**
+     * @Then a supertype is named :name
+     */
+    public function aSupertypeIsNamed(string $name): void
+    {
+        $this->assertRelatedTypeNamed($name, 'supertype');
+    }
+
+    /**
+     * @Then a subtype is named :name
+     */
+    public function aSubtypeIsNamed(string $name): void
+    {
+        $this->assertRelatedTypeNamed($name, 'subtype');
+    }
+
+    private function assertRelatedTypeNamed(string $name, string $label): void
+    {
+        $names = $this->hierarchyNames($this->lastResponse, 'name');
+        $this->assert(
+            in_array($name, $names, true),
+            sprintf('expected a %s named "%s"; got: [%s]', $label, $name, implode(', ', $names)),
+        );
+    }
+
     /**
      * @Then the response points to :path
      */
