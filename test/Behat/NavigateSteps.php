@@ -41,6 +41,18 @@ trait NavigateSteps
     }
 
     /**
+     * @Then the response contains :count highlights
+     */
+    public function theResponseContainsHighlights(int $count): void
+    {
+        $this->assert(is_array($this->lastResponse), 'expected a highlight list response');
+        $this->assert(
+            count($this->lastResponse) === $count,
+            sprintf('expected %d highlights, got %d', $count, count($this->lastResponse)),
+        );
+    }
+
+    /**
      * @Then the response includes a location in :path
      */
     public function theResponseIncludesALocationIn(string $path): void
