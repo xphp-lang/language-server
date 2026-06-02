@@ -15,19 +15,22 @@ use Phpactor\LanguageServerProtocol\MarkupContent;
 trait UnderstandSteps
 {
     /**
-     * @Then the hover contents describe the class :fqn
+     * @Then the hover contents contain :text
      */
-    public function theHoverContentsDescribeTheClass(string $fqn): void
+    public function theHoverContentsContain(string $text): void
     {
-        $this->assertHoverContains($fqn);
+        $this->assertHoverContains($text);
     }
 
     /**
-     * @Then the hover contents show the substituted signature :sig
+     * @Then there is no hover
      */
-    public function theHoverContentsShowTheSubstitutedSignature(string $sig): void
+    public function thereIsNoHover(): void
     {
-        $this->assertHoverContains($sig);
+        $this->assert(
+            $this->lastResponse === null,
+            'expected no hover, got ' . get_debug_type($this->lastResponse),
+        );
     }
 
     /**
