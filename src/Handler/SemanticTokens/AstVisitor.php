@@ -29,7 +29,7 @@ use XPHP\Transpiler\Monomorphize\ByteOffsetMap;
  * Walk the xphp source + AST and emit {@see TokenSpec} entries for the
  * PHP-shaped surface (keywords, variables, numbers, strings, comments,
  * class / interface / enum / function / method / property names) plus
- * the xphp generic forms (Slice 3, not yet implemented).
+ * the xphp generic forms (`typeParameter` for each `T`).
  *
  * Two passes:
  *
@@ -37,8 +37,8 @@ use XPHP\Transpiler\Monomorphize\ByteOffsetMap;
  *    tokens are byte-indexed into the ORIGINAL source (not the stripped
  *    buffer), so positions feed directly into {@see PositionMap}.
  *    Emits keywords, variables, numbers, single-quoted strings,
- *    double-quoted strings (as a single span -- interpolation
- *    classification is deferred to Slice 4), and comments.  Deliberately
+ *    double-quoted strings (as a single span -- finer-grained
+ *    interpolation classification is not yet handled), and comments.  Deliberately
  *    skips T_STRING (identifiers) so the AST pass can classify each
  *    identifier into its semantic role without overlap.
  *
@@ -51,9 +51,11 @@ use XPHP\Transpiler\Monomorphize\ByteOffsetMap;
  *    names -> `function`, PropertyItem names -> `property`, Param
  *    names -> `parameter`.
  *
- * Slice 3 will extend the AST pass to recognise xphp generic
- * `ATTR_GENERIC_PARAMS` / `ATTR_GENERIC_ARGS` decorations and emit
- * `typeParameter` for every `T` in the 12 audit forms.
+ * The token pass classifies identifiers inside `<...>` clauses as
+ * `typeParameter`, and the AST pass reads the enclosing ClassLike's
+ * `ATTR_GENERIC_PARAMS` decoration to re-classify reified-`T`
+ * references (`new T()`, `instanceof T`, `T::class`) the token scan
+ * can't distinguish from ordinary class names.
  */
 final class AstVisitor
 {
@@ -125,7 +127,7 @@ final class AstVisitor
             return;
         }
 
-        // Slice 3: state machine tracks whether we're inside a
+        // State machine tracks whether we're inside a
         // `<...>` generic clause.  `<` opens a clause if (a) the
         // previous non-trivial token was an identifier (T_STRING),
         // and (b) the next non-trivial token is an uppercase-starting
@@ -478,7 +480,7 @@ final class AstVisitor
         // Length stays in BYTES at this point -- correct for ASCII-only
         // identifiers (the vast majority of PHP source).  LSP wants
         // UTF-16 code units; for ASCII the two are equal.  Non-ASCII
-        // tokens (e.g. UTF-8 strings) are an edge case Slice 4 covers.
+        // tokens (e.g. UTF-8 strings) are an edge case not yet handled.
         $out[] = new TokenSpec(
             line: $line,
             startChar: $startChar,

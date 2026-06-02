@@ -23,21 +23,20 @@ use XPHP\Lsp\Resolver\OptimizeImportsCodeActionProvider;
  * `textDocument/codeAction` handler.
  *
  * Surfaces lightbulb / Alt+Enter quick-fixes for the cursor's
- * range and any diagnostics in it.  Currently returns an empty
- * action list -- this is scaffolding so the LSP capability is
- * advertised correctly (clients suppress the lightbulb UI for
- * servers that don't advertise it, even if a future fix is
- * available).
+ * range and any diagnostics in it.  Merges three providers:
+ *  - {@see ImportCodeActionProvider} -- "Import class" / "Simplify
+ *    FQN" for the unresolved name under the cursor.
+ *  - {@see DiagnosticCodeActionProvider} -- per-diagnostic fixes
+ *    keyed off `$params->context->diagnostics` (e.g. the
+ *    "Did you mean ...?" null/true/false replacements for the
+ *    undefined-bareword diagnostic).
+ *  - {@see OptimizeImportsCodeActionProvider} -- "Optimize imports"
+ *    removing unused `use` statements.
  *
- * Concrete quick-fixes will land in follow-up commits, each tied
- * to a specific diagnostic code emitted by the analyzer (e.g.
- * "Did you mean ...?" for the undefined-bareword diagnostic from
- * commit 47a37fa).  Each fix will:
- *  1. Inspect `$params->context->diagnostics` for codes it handles.
- *  2. Build a CodeAction with a WorkspaceEdit (textEdits)
- *     OR a Command to execute server-side.
- *  3. Optionally defer the heavy lookup to
- *     `codeAction/resolve` via XphpCodeActionResolveHandler.
+ * Each provider builds its CodeAction with the WorkspaceEdit
+ * attached eagerly, so the action is applied directly on accept
+ * (no `codeAction/resolve` round-trip -- see
+ * {@see XphpCodeActionResolveHandler}).
  *
  * Available since IntelliJ Platform 2023.2 (the codeAction
  * capability itself); 2024.2 for the `resolve` round-trip.
@@ -63,10 +62,11 @@ final class XphpCodeActionHandler implements Handler, CanRegisterCapabilities
     {
         $capabilities->codeActionProvider = new CodeActionOptions(
             // `resolveProvider: true` opts into the
-            // `codeAction/resolve` round-trip so quick-fixes
-            // can emit lightweight items up-front and defer
-            // the actual WorkspaceEdit construction to the
-            // moment the user accepts the action.
+            // `codeAction/resolve` round-trip.  Today's providers
+            // attach their WorkspaceEdit eagerly, so the round-trip
+            // goes unused (see XphpCodeActionResolveHandler) -- the
+            // flag is kept as a hook for any future fix expensive
+            // enough to defer its edit until the user accepts.
             resolveProvider: true,
         );
     }
