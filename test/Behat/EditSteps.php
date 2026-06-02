@@ -10,7 +10,9 @@ use Phpactor\LanguageServerProtocol\CodeActionParams;
 use Phpactor\LanguageServerProtocol\CodeLens;
 use Phpactor\LanguageServerProtocol\CodeLensParams;
 use Phpactor\LanguageServerProtocol\Diagnostic;
+use Phpactor\LanguageServerProtocol\FileRename;
 use Phpactor\LanguageServerProtocol\Position;
+use Phpactor\LanguageServerProtocol\RenameFilesParams;
 use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\RenameParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
@@ -86,6 +88,17 @@ trait EditSteps
         $changes = $edit->documentChanges ?? null;
         $this->assert(is_array($changes), 'expected the WorkspaceEdit to carry documentChanges');
         return $changes;
+    }
+
+    // ---- workspace/willRenameFiles -----------------------------------------
+
+    /**
+     * @When I rename the file :oldUri to :newUri
+     */
+    public function iRenameTheFileTo(string $oldUri, string $newUri): void
+    {
+        $params = new RenameFilesParams([new FileRename($oldUri, $newUri)]);
+        $this->lastResponse = wait($this->handler('willRename')->willRenameFiles($params));
     }
 
     // ---- code actions ------------------------------------------------------
