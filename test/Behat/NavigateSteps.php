@@ -6,6 +6,9 @@ namespace XPHP\Lsp\Test\Behat;
 
 use Phpactor\LanguageServerProtocol\DocumentSymbol;
 use Phpactor\LanguageServerProtocol\SymbolKind;
+use Phpactor\LanguageServerProtocol\WorkspaceSymbolParams;
+
+use function Amp\Promise\wait;
 
 /**
  * Steps for the Navigate theme: definition, type-definition, references,
@@ -41,6 +44,51 @@ trait NavigateSteps
             count($uris) === $count,
             sprintf('expected %d locations, got %d: [%s]', $count, count($uris), implode(', ', $uris)),
         );
+    }
+
+    /**
+     * @When I search workspace symbols for :query
+     */
+    public function iSearchWorkspaceSymbolsFor(string $query): void
+    {
+        $this->lastResponse = wait($this->handler('workspaceSymbol')->symbol(new WorkspaceSymbolParams($query)));
+    }
+
+    /**
+     * @Then the workspace symbols include :name
+     */
+    public function theWorkspaceSymbolsInclude(string $name): void
+    {
+        $names = $this->symbolNames();
+        $this->assert(
+            in_array($name, $names, true),
+            sprintf('expected workspace symbols to include "%s"; got: [%s]', $name, implode(', ', $names)),
+        );
+    }
+
+    /**
+     * @Then the workspace symbols exclude :name
+     */
+    public function theWorkspaceSymbolsExclude(string $name): void
+    {
+        $names = $this->symbolNames();
+        $this->assert(
+            !in_array($name, $names, true),
+            sprintf('expected workspace symbols to exclude "%s"; got: [%s]', $name, implode(', ', $names)),
+        );
+    }
+
+    /** @return list<string> */
+    private function symbolNames(): array
+    {
+        $this->assert(is_array($this->lastResponse), 'expected a workspace-symbol list response');
+        $names = [];
+        foreach ($this->lastResponse as $symbol) {
+            if (is_object($symbol) && isset($symbol->name)) {
+                $names[] = $symbol->name;
+            }
+        }
+        return $names;
     }
 
     /**
