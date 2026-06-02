@@ -8,11 +8,15 @@ use Behat\Gherkin\Node\PyStringNode;
 use PhpParser\ParserFactory;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServerProtocol\DefinitionParams;
+use Phpactor\LanguageServerProtocol\DocumentHighlightParams;
 use Phpactor\LanguageServerProtocol\HoverParams;
+use Phpactor\LanguageServerProtocol\ImplementationParams;
 use Phpactor\LanguageServerProtocol\InlayHintParams;
 use Phpactor\LanguageServerProtocol\Location;
 use Phpactor\LanguageServerProtocol\Position;
 use Phpactor\LanguageServerProtocol\Range;
+use Phpactor\LanguageServerProtocol\ReferenceContext;
+use Phpactor\LanguageServerProtocol\ReferenceParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use Phpactor\LanguageServerProtocol\TextDocumentItem;
 use Phpactor\LanguageServerProtocol\TypeDefinitionParams;
@@ -131,6 +135,9 @@ trait WorldTrait
         $this->lastResponse = match ($method) {
             'textDocument/definition' => wait($this->handler('definition')->definition(new DefinitionParams($doc, $pos))),
             'textDocument/typeDefinition' => wait($this->handler('typeDefinition')->typeDefinition(new TypeDefinitionParams($doc, $pos))),
+            'textDocument/references' => wait($this->handler('references')->references(new ReferenceParams(new ReferenceContext(true), $doc, $pos))),
+            'textDocument/implementation' => wait($this->handler('implementation')->implementation(new ImplementationParams($doc, $pos))),
+            'textDocument/documentHighlight' => wait($this->handler('documentHighlight')->documentHighlight(new DocumentHighlightParams($doc, $pos))),
             'textDocument/hover' => wait($this->handler('hover')->hover(new HoverParams($doc, $pos))),
             default => throw new \RuntimeException("Unsupported position method: {$method}"),
         };
