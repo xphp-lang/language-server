@@ -2,6 +2,20 @@ Feature: Diagnostics
   As a developer editing xphp
   I want compile-time problems surfaced as diagnostics
 
+  Scenario: A well-formed file reports nothing
+    Given the file at "/Clean.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class User
+      {
+          public function __construct(public string $name) {}
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Clean.xphp" for diagnostics
+    Then no diagnostics are reported
+
   Scenario: Report a syntax error
     Given the file at "/Broken.xphp" contains the following lines:
       """
