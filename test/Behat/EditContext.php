@@ -187,6 +187,18 @@ final class EditContext implements Context
     }
 
     /**
+     * @Then no code actions are offered
+     */
+    public function noCodeActionsAreOffered(): void
+    {
+        $actions = array_filter((array) $this->world->last(), static fn ($a): bool => $a instanceof CodeAction);
+        $this->world->assert(
+            $actions === [],
+            sprintf('expected no code actions, got %d', count($actions)),
+        );
+    }
+
+    /**
      * @Then the :title action has kind :kind
      */
     public function theActionHasKind(string $title, string $kind): void
