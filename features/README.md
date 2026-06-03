@@ -55,6 +55,43 @@ Behat is installed in an isolated tooling dir (`tools/behat/`) because Behat 3.x
 caps `symfony/console` at `^7` while the project pins `^8` via `xphp-lang/xphp`.
 `make test/behat` bootstraps it on first run.
 
+## Coverage boundary — what is *not* covered here, and why
+
+The suite is **100% in-memory**: `World` builds the server with
+`new InitializeParams(new ClientCapabilities())` — **no `rootUri`/`rootPath`** —
+so the filesystem walk is empty and every scenario is open-document-only (files
+arrive via `textDocument/didOpen`, never from disk). That guarantee is what
+keeps the suite isolated and parallel-safe, but it puts whole categories of
+behavior structurally out of reach. Those are covered by **PHPUnit unit tests**
+instead (named below), not Behat — driving them here would require writing real
+files to a real `rootUri`, which would break the in-memory / no-disk /
+parallel-safe invariant.
+
+**Filesystem layer (unit-tested, never Behat):**
+- The FQN **filesystem index** + **proximity-aware resolution** and its
+  per-request origin anchor (`OriginTrackingMiddleware`) — duplicate FQNs across
+  on-disk files resolved by nearness to the requesting document.
+  → `test/Reflection/FqnIndexTest.php`, `test/Dispatcher/OriginTrackingMiddlewareTest.php`
+- Cross-file go-to-definition / hover into **closed** (on-disk, not open) files.
+- The warmers (`FqnIndexWarmer`, `ParsedDocumentCacheWarmer`).
+- Bound-check hierarchy single-sourcing across duplicate-FQN packages.
+  → `test/Diagnostics/XphpDiagnosticsProviderTest.php`
+- `workspace/didChangeWatchedFiles` (file-watcher index invalidation).
+
+**Other unit-only behaviors:**
+- Non-ASCII semantic-token **length** (UTF-16 code units): the Behat token
+  decoder is byte-based, so the length is pinned in
+  `test/Handler/SemanticTokens/AstVisitorTest.php` instead.
+
+**In-memory-drivable but currently not scripted (low value):**
+- Document-lifecycle notifications `textDocument/didClose` / `didSave` /
+  `willSave` / `willSaveWaitUntil` (Behat only drives `didOpen` / `didChange`).
+- The `codeAction/resolve` round-trip (providers attach edits eagerly, so the
+  resolve step is a no-op in practice).
+
+Everything else — all of navigate / edit / understand / validate / find — is
+exercised end-to-end through the real dispatcher here.
+
 ## @todo scenarios
 
 Deferred behavior can be written as `@todo` scenarios that document the desired
