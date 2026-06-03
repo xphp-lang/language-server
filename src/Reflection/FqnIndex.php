@@ -157,12 +157,36 @@ final class FqnIndex
      */
     private ?array $typeParamFqns = null;
 
+    /**
+     * The document a resolution is being performed "on behalf of", used as the
+     * proximity anchor when several files declare the same FQN. Set once per
+     * request by {@see \XPHP\Lsp\Dispatcher\OriginTrackingMiddleware} from the
+     * request's `textDocument.uri`. The deep resolver chains and the
+     * worse-reflection locator carry no document context of their own, so this
+     * holder is how proximity reaches them. Null = no anchor (global tiebreak).
+     */
+    private ?string $currentOrigin = null;
+
     public function __construct(
         private readonly PhpactorWorkspace $workspace,
         private readonly ParsedDocumentCache $cache,
         private readonly XphpSourceParser $parser,
         private readonly string $rootPath,
     ) {
+    }
+
+    /**
+     * Set the proximity anchor for subsequent resolutions (the document the
+     * current request is for), or null to clear it. Cheap; called per request.
+     */
+    public function withOrigin(?string $uri): void
+    {
+        $this->currentOrigin = $uri;
+    }
+
+    public function currentOrigin(): ?string
+    {
+        return $this->currentOrigin;
     }
 
     /**
@@ -1060,7 +1084,10 @@ final class FqnIndex
      */
     private function selectDecl(string $fqn, ?string $origin): ?array
     {
-        return self::nearestDecl($this->filesystemDeclsMap()[$fqn] ?? [], $origin);
+        // An explicit origin (passed by a caller that has it) wins; otherwise
+        // fall back to the per-request anchor set by the middleware.
+        $effective = $origin ?? $this->currentOrigin;
+        return self::nearestDecl($this->filesystemDeclsMap()[$fqn] ?? [], $effective);
     }
 
     /**

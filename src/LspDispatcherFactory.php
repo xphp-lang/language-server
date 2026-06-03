@@ -373,6 +373,9 @@ final class LspDispatcherFactory implements DispatcherFactory
             ]),
             new ShutdownMiddleware($eventDispatcher),
             new ResponseHandlingMiddleware($responseWatcher),
+            // Anchor FQN resolution to each request's textDocument so duplicate
+            // FQNs resolve to the declaration nearest the file being worked on.
+            new \XPHP\Lsp\Dispatcher\OriginTrackingMiddleware($fqnIndex),
             new CancellationMiddleware($runner),
             new HandlerMiddleware($runner),
         );
