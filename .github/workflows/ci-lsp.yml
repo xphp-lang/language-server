@@ -41,6 +41,35 @@ jobs:
       - name: Run PHPUnit (LSP)
         run: make test/unit
 
+  behat-lsp:
+    name: Behat (LSP acceptance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, json, mbstring, tokenizer
+          coverage: none
+          tools: composer:v2
+
+      # Root deps first -- the isolated Behat install autoloads the root
+      # vendor/autoload at runtime (see tools/behat/composer.json).
+      - name: Install LSP dependencies
+        uses: ramsey/composer-install@v3
+
+      # Behat lives in its own composer.json (tools/behat) because Behat 3.x
+      # caps symfony/console at ^7 while the root pins ^8 via xphp-lang/xphp.
+      - name: Install Behat tooling dependencies
+        run: composer install --working-dir=tools/behat --no-interaction
+
+      # Drives the real LSP dispatcher end-to-end, fully in-memory; @todo
+      # scenarios are skipped via the gherkin tag filter in behat.dist.yml.
+      - name: Run Behat acceptance suite
+        run: make test/behat
+
   infection-lsp:
     name: Mutation testing (LSP)
     # Gate: only run when explicitly requested via the Actions tab.  The

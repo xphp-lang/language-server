@@ -98,8 +98,11 @@ build/phar: $(BOX_PHAR)
 # The warmer's stderr chatter is silenced from tools/behat/bootstrap.php
 # (putenv XPHP_LSP_QUIET=1), since shell env-prefixes don't propagate through
 # this project's containerized `php` proxy.
+# memory_limit=-1: the first scenario builds the worse-reflection stub map
+# (peaks ~512M, same as the PHPUnit handler tests), which OOMs under the default
+# CLI limit on a cold cache (e.g. in CI).
 BEHAT_BIN := tools/behat/vendor/bin/behat
-BEHAT := php -d error_reporting='E_ALL & ~E_DEPRECATED' $(BEHAT_BIN)
+BEHAT := php -d error_reporting='E_ALL & ~E_DEPRECATED' -d memory_limit=-1 $(BEHAT_BIN)
 BEHAT_FLAGS := -c behat.dist.yml --colors
 
 $(BEHAT_BIN):
@@ -118,4 +121,4 @@ test/behat/parallel: $(BEHAT_BIN)
 	@echo "==> warming shared stub cache"
 	@$(BEHAT) $(BEHAT_FLAGS) features/navigate/definition.feature >/dev/null 2>&1 || true
 	find features -name '*.feature' | xargs -P 4 -I{} \
-	  php -d error_reporting='E_ALL & ~E_DEPRECATED' $(BEHAT_BIN) $(BEHAT_FLAGS) {}
+	  php -d error_reporting='E_ALL & ~E_DEPRECATED' -d memory_limit=-1 $(BEHAT_BIN) $(BEHAT_FLAGS) {}
