@@ -326,6 +326,20 @@ final class EditContext implements Context
     }
 
     /**
+     * @When I resolve the code lens on line :line
+     */
+    public function iResolveTheCodeLensOnLine(int $line): void
+    {
+        foreach ((array) $this->world->last() as $lens) {
+            if ($lens instanceof CodeLens && $lens->range->start->line === $line) {
+                $this->world->request('codeLens/resolve', $lens);
+                return;
+            }
+        }
+        $this->world->fail(sprintf('no code lens on line %d', $line));
+    }
+
+    /**
      * @Then a code lens titled :title is offered
      */
     public function aCodeLensTitledIsOffered(string $title): void

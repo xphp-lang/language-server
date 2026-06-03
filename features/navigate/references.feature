@@ -31,3 +31,23 @@ Feature: Find references
     And a reference in "/Use1.xphp" covers "App\User"
     And a reference in "/Use1.xphp" covers "User"
     And a reference in "/Use2.xphp" covers "\App\User"
+
+  Scenario: Find usages of a constructor includes "new" instantiation sites
+    Given the file at "/Widget.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Widget {
+          public function __construct(public string $id) {}
+      }
+      """
+    And the file at "/WidgetUse.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $a = new Widget('a');
+      $b = new Widget('b');
+      """
+    When I request "textDocument/references" on "__construct" at line 3 of "/Widget.xphp"
+    Then the response contains 3 locations
+    And a reference in "/WidgetUse.xphp" covers "Widget"

@@ -29,3 +29,23 @@ Feature: Code lens
     And I resolve the first code lens
     Then the resolved lens reads "2 usages"
     And the resolved lens carries the reference locations
+
+  Scenario: A constructor lens counts "new" instantiation sites
+    Given the file at "/Gadget.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Gadget {
+          public function __construct() {}
+      }
+      """
+    And the file at "/GadgetUse.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $a = new Gadget();
+      $b = new Gadget();
+      """
+    When I request code lenses for "/Gadget.xphp"
+    And I resolve the code lens on line 3
+    Then the resolved lens reads "2 usages"
