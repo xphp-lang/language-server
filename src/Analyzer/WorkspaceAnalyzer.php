@@ -112,13 +112,12 @@ final readonly class WorkspaceAnalyzer
             $this->walkInstantiations($entry['ast'], $registry, $positionMap, $diagnosticsByFile[$path]);
         }
 
-        // Third pass: constructor argument-type checking (V1 of the
-        // post-monomorphization arg type checker).  Catches the class
-        // of bugs where `new C<T>(…)` or plain `new C(…)` is called
-        // with an arg whose static type can't satisfy the (substituted)
-        // ctor param's declared type -- a runtime TypeError waiting
-        // to happen.
-        $argChecks = (new ConstructorArgumentChecker())->check($files, $hierarchy);
+        // Third pass: argument-type checking across all call shapes --
+        // `new C(…)`, `$obj->m(…)`, `C::m(…)`, `fn(…)`.  Catches the
+        // class of bugs where an argument's static type can't satisfy
+        // the (substituted) parameter's declared type -- a runtime
+        // TypeError waiting to happen.
+        $argChecks = (new CallArgumentChecker())->check($files, $hierarchy);
         foreach ($argChecks as $path => $diags) {
             foreach ($diags as $diag) {
                 $diagnosticsByFile[$path][] = $diag;

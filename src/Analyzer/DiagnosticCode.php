@@ -78,6 +78,20 @@ enum DiagnosticCode: string
     case ConstructorArgumentMismatch = 'xphp.ctor-arg-mismatch';
 
     /**
+     * V2 of the argument-type checker, extending the constructor case
+     * (`xphp.ctor-arg-mismatch`) to the other call shapes: instance
+     * method calls (`$obj->m(…)`), static calls (`C::m(…)`), and
+     * free-function calls (`fn(…)`).  Same conservative inference --
+     * literals, `new C()`, and `$var`s locally assigned from those --
+     * surfacing a would-be runtime `TypeError` ahead of time.
+     *
+     * A separate code (rather than reusing the constructor one) lets an
+     * editor downgrade/scope the two independently and keeps the
+     * constructor surface's history untouched.
+     */
+    case ArgumentMismatch = 'xphp.arg-mismatch';
+
+    /**
      * Map a RuntimeException raised by Registry::recordInstantiation to its
      * diagnostic code. The Registry doesn't (currently) use a typed exception
      * hierarchy, so we triage by the error message's leading phrase. The

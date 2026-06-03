@@ -16,7 +16,8 @@ features/
 │               call hierarchy, type hierarchy
 ├── edit/       rename, code actions, code lens, willRenameFiles
 ├── understand/ hover, signature help, inlay hints, folding ranges, semantic tokens
-├── validate/   diagnostics (parse, undefined-name, bound, ctor-arg, duplicate)
+├── validate/   diagnostics (parse, undefined-name, bound, duplicate,
+│               argument-type mismatch: ctor / method / static / function)
 └── find/       completion, completion-item resolve
 ```
 
