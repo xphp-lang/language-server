@@ -75,6 +75,55 @@ final class FindContext implements Context
     }
 
     /**
+     * @Then the completion item :label has kind :kind
+     */
+    public function theCompletionItemHasKind(string $label, string $kind): void
+    {
+        $item = $this->findItem($label);
+        $want = $this->completionKind($kind);
+        $this->world->assert(
+            $item->kind === $want,
+            sprintf('expected "%s" to have kind %s, got %s', $label, $kind, var_export($item->kind, true)),
+        );
+    }
+
+    /**
+     * @Then the completion item :label has detail :detail
+     */
+    public function theCompletionItemHasDetail(string $label, string $detail): void
+    {
+        $item = $this->findItem($label);
+        $this->world->assert(
+            $item->detail === $detail,
+            sprintf('expected "%s" detail "%s", got "%s"', $label, $detail, (string) $item->detail),
+        );
+    }
+
+    private function findItem(string $label): CompletionItem
+    {
+        foreach ($this->completionItems() as $item) {
+            if ($item->label === $label) {
+                return $item;
+            }
+        }
+        $this->world->fail(sprintf('no completion item labeled "%s"', $label));
+    }
+
+    private function completionKind(string $kind): int
+    {
+        return match ($kind) {
+            'class' => CompletionItemKind::CLASS_,
+            'interface' => CompletionItemKind::INTERFACE,
+            'enum' => CompletionItemKind::ENUM,
+            'function' => CompletionItemKind::FUNCTION,
+            'method' => CompletionItemKind::METHOD,
+            'property' => CompletionItemKind::PROPERTY,
+            'keyword' => CompletionItemKind::KEYWORD,
+            default => throw new \RuntimeException("unknown completion kind: {$kind}"),
+        };
+    }
+
+    /**
      * @When I resolve a class completion item for :fqn
      */
     public function iResolveAClassCompletionItemFor(string $fqn): void
@@ -89,17 +138,17 @@ final class FindContext implements Context
     }
 
     /**
-     * @Then the resolved item documentation contains :text
+     * @Then the resolved item documentation is :text
      */
-    public function theResolvedItemDocumentationContains(string $text): void
+    public function theResolvedItemDocumentationIs(string $text): void
     {
         $item = $this->world->last();
         $this->world->assert($item instanceof CompletionItem, 'expected a CompletionItem response, got ' . get_debug_type($item));
         $doc = $item->documentation;
         $value = $doc instanceof MarkupContent ? $doc->value : (is_string($doc) ? $doc : '');
         $this->world->assert(
-            str_contains($value, $text),
-            sprintf('expected resolved documentation to contain "%s", got: %s', $text, $value === '' ? '<empty>' : $value),
+            trim($value) === trim($text),
+            sprintf('expected resolved documentation "%s", got: %s', $text, $value === '' ? '<empty>' : $value),
         );
     }
 

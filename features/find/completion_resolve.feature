@@ -16,4 +16,4 @@ Feature: Completion item resolve
 
   Scenario: Enrich a class item with its docblock
     When I resolve a class completion item for "App\User"
-    Then the resolved item documentation contains "A user account."
+    Then the resolved item documentation is "A user account."

@@ -20,6 +20,8 @@ Feature: Completion
     When I request completion after "Box<" at line 2 of "/Use.xphp"
     Then a completion item labeled "Plastic" is offered
     And a completion item labeled "Metal" is offered
+    And the completion item "Plastic" has kind "class"
+    And the completion item "Plastic" has detail "App\Models\Plastic"
 
   Scenario: Insert the fully-qualified name when the class is not imported
     Given the file at "/Models.xphp" contains the following lines:
