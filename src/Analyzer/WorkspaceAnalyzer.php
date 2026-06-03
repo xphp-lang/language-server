@@ -56,28 +56,54 @@ final readonly class WorkspaceAnalyzer
         $hierarchy = TypeHierarchy::fromAstPerFile($astPerFile);
         $registry = new Registry(hierarchy: $hierarchy);
 
-        // First pass: definitions. Catch duplicate-declaration RuntimeExceptions and pin
-        // them on the second declaration's file (which is what the compiler also reports).
-        // Open files first — their declarations win on URI collision.
+        // Duplicate-template diagnostics. A duplicate is a property of ALL the
+        // colliding declarations, not of iteration order, so we flag every open
+        // file that re-declares a template (each diagnostic naming the others).
+        // This makes the duplicate surface on whichever file the editor pulls:
+        // the pull provider forces the current file first, which previously made
+        // it the "canonical" (clean) one and hid the duplicate. Only open files
+        // ($files) are considered -- filesystem copies live in $hierarchyAsts, so
+        // an open file is never flagged as a duplicate of its own on-disk copy.
+        $declarationsByFqn = [];
         foreach ($files as $path => $entry) {
             $positionMap = new PositionMap($entry['source']);
-            $this->walkDefinitions($entry['ast'], $registry, $path, $positionMap, $diagnosticsByFile[$path]);
+            foreach (self::collectTemplateDeclarations($entry['ast']) as $decl) {
+                $declarationsByFqn[$decl['fqn']][] = $decl + ['path' => $path, 'positionMap' => $positionMap];
+            }
         }
-        // Filesystem-only definitions are silently registered so the
-        // bound-check lookup in `Registry::validateBounds` succeeds even
-        // when the template's defining file isn't currently open. Any
-        // duplicate-template throws (whether against an open file already
-        // registered or against another filesystem entry) land in a sink
-        // no caller reads — they aren't actionable for the user since
-        // the offending file isn't on screen.
-        $definitionSink = [];
+        foreach ($declarationsByFqn as $fqn => $declarations) {
+            if (count($declarations) < 2) {
+                continue;
+            }
+            foreach ($declarations as $index => $decl) {
+                $others = [];
+                foreach ($declarations as $otherIndex => $other) {
+                    if ($otherIndex !== $index) {
+                        $others[] = $other['path'];
+                    }
+                }
+                $diagnosticsByFile[$decl['path']][] = self::buildDefinitionDiagnostic(
+                    $decl['positionMap'],
+                    $decl['name'],
+                    $decl['line'],
+                    sprintf('Generic template "%s" is already declared (also in %s).', $fqn, implode(', ', $others)),
+                );
+            }
+        }
+
+        // Register every definition so the bound-check pass below can resolve
+        // templates. Open files first -- their declarations win the registry on a
+        // collision; the duplicate throw is swallowed since it's already been
+        // reported above. Filesystem-only definitions are registered silently so
+        // Registry::validateBounds finds templates whose defining file isn't open.
+        foreach ($files as $path => $entry) {
+            $this->recordDefinitions($entry['ast'], $registry, $path);
+        }
         foreach ($hierarchyAsts as $uri => $ast) {
             if (isset($files[$uri])) {
                 continue;
             }
-            // Degenerate PositionMap is fine: any diagnostic constructed here
-            // is discarded via the sink, so the bogus offsets never surface.
-            $this->walkDefinitions($ast, $registry, $uri, new PositionMap(''), $definitionSink);
+            $this->recordDefinitions($ast, $registry, $uri);
         }
 
         // Second pass: instantiations. Bound violations fire here.
@@ -103,23 +129,19 @@ final readonly class WorkspaceAnalyzer
     }
 
     /**
+     * Register every generic-template declaration into the registry so the
+     * bound-check pass can resolve templates. Duplicate-declaration throws are
+     * swallowed -- they are surfaced as diagnostics by the dedicated cross-file
+     * pass in {@see analyze()}, and the registry keeps the first registration.
+     *
      * @param list<Node\Stmt> $ast
-     * @param list<Diagnostic> $diagnostics
      */
-    private function walkDefinitions(
-        array $ast,
-        Registry $registry,
-        string $sourceFile,
-        PositionMap $positionMap,
-        array &$diagnostics,
-    ): void {
-        $visitor = new class($registry, $sourceFile, $positionMap, $diagnostics) extends NodeVisitorAbstract {
-            /** @param list<Diagnostic> $diagnostics */
+    private function recordDefinitions(array $ast, Registry $registry, string $sourceFile): void
+    {
+        $visitor = new class($registry, $sourceFile) extends NodeVisitorAbstract {
             public function __construct(
                 private readonly Registry $registry,
                 private readonly string $sourceFile,
-                private readonly PositionMap $positionMap,
-                private array &$diagnostics,
             ) {
             }
 
@@ -133,54 +155,75 @@ final readonly class WorkspaceAnalyzer
                 if (!is_array($params) || $params === [] || !is_string($fqn)) {
                     return null;
                 }
-                // Deliberately do NOT pre-check for "already registered" — the whole point
-                // of running this in the analyzer is to surface the duplicate-declaration
-                // RuntimeException from Registry::recordDefinition as a diagnostic.
                 try {
-                    $this->registry->recordDefinition(
-                        $fqn,
-                        $node->name->toString(),
-                        $params,
-                        $node,
-                        $this->sourceFile,
-                    );
-                } catch (RuntimeException $e) {
-                    $this->diagnostics[] = self::buildDiagnostic(
-                        $this->positionMap,
-                        $node->name,
-                        $node->getStartLine(),
-                        DiagnosticCode::Definition,
-                        $e->getMessage(),
-                    );
+                    $this->registry->recordDefinition($fqn, $node->name->toString(), $params, $node, $this->sourceFile);
+                } catch (RuntimeException) {
+                    // Duplicate -- already reported by the cross-file pass; the
+                    // registry keeps the first registration.
                 }
                 return null;
-            }
-
-            private static function buildDiagnostic(
-                PositionMap $positionMap,
-                ?\PhpParser\Node\Identifier $identifier,
-                int $fallbackNikicLine,
-                DiagnosticCode $code,
-                string $message,
-            ): Diagnostic {
-                // Prefer the identifier's actual byte span — squiggles the class
-                // name, not the whole line. Fall back to the full-line range when
-                // position info is missing (synthetic nodes etc.).
-                if ($identifier !== null && $identifier->getStartFilePos() >= 0) {
-                    [$sl, $sc, $el, $ec] = $positionMap->rangeFromOffsets(
-                        $identifier->getStartFilePos(),
-                        $identifier->getEndFilePos() + 1,
-                    );
-                } else {
-                    [$sl, $sc, $el, $ec] = $positionMap->fullLineRangeFromNikic($fallbackNikicLine);
-                }
-                return new Diagnostic($sl, $sc, $el, $ec, $message, code: $code);
             }
         };
 
         $traverser = new NodeTraverser();
         $traverser->addVisitor($visitor);
         $traverser->traverse($ast);
+    }
+
+    /**
+     * Collect every generic-template declaration (FQN + name node) in a file,
+     * for the cross-file duplicate-detection pass.
+     *
+     * @param list<Node\Stmt> $ast
+     * @return list<array{fqn: string, name: \PhpParser\Node\Identifier, line: int}>
+     */
+    private static function collectTemplateDeclarations(array $ast): array
+    {
+        $visitor = new class extends NodeVisitorAbstract {
+            /** @var list<array{fqn: string, name: \PhpParser\Node\Identifier, line: int}> */
+            public array $declarations = [];
+
+            public function enterNode(Node $node): null
+            {
+                if (!$node instanceof ClassLike || $node->name === null) {
+                    return null;
+                }
+                $params = $node->getAttribute(XphpSourceParser::ATTR_GENERIC_PARAMS);
+                $fqn = $node->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
+                if (!is_array($params) || $params === [] || !is_string($fqn)) {
+                    return null;
+                }
+                $this->declarations[] = ['fqn' => $fqn, 'name' => $node->name, 'line' => $node->getStartLine()];
+                return null;
+            }
+        };
+
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor($visitor);
+        $traverser->traverse($ast);
+
+        return $visitor->declarations;
+    }
+
+    /**
+     * Build a Definition diagnostic squiggling the class-name span (falling back
+     * to the full line when byte offsets are missing).
+     */
+    private static function buildDefinitionDiagnostic(
+        PositionMap $positionMap,
+        \PhpParser\Node\Identifier $identifier,
+        int $fallbackNikicLine,
+        string $message,
+    ): Diagnostic {
+        if ($identifier->getStartFilePos() >= 0) {
+            [$sl, $sc, $el, $ec] = $positionMap->rangeFromOffsets(
+                $identifier->getStartFilePos(),
+                $identifier->getEndFilePos() + 1,
+            );
+        } else {
+            [$sl, $sc, $el, $ec] = $positionMap->fullLineRangeFromNikic($fallbackNikicLine);
+        }
+        return new Diagnostic($sl, $sc, $el, $ec, $message, code: DiagnosticCode::Definition);
     }
 
     /**

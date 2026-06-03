@@ -106,6 +106,34 @@ final class XphpDiagnosticsProviderTest extends TestCase
         self::assertSame([], $diagnostics, 'no duplicate-declaration must surface when the only file holding Box is the one being linted');
     }
 
+    public function testDuplicateTemplateSurfacesOnWhicheverFileIsPulled(): void
+    {
+        // Two open files both declare `App\Box`. The pull provider forces the
+        // current file first in the workspace pass, which used to make it the
+        // canonical (clean) one -- so the duplicate only ever landed on the OTHER
+        // file and was never returned for the file the editor was looking at.
+        // Now a duplicate is flagged on ALL colliding declarations, so pulling
+        // diagnostics for EITHER file returns it.
+        $workspace = new PhpactorWorkspace();
+        $one = $this->openDoc($workspace, '/BoxOne.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T> { public T $item; }
+        XPHP);
+        $two = $this->openDoc($workspace, '/BoxTwo.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T> { public T $item; }
+        XPHP);
+
+        foreach ([$one, $two] as $doc) {
+            $diagnostics = $this->lint($workspace, $doc);
+            self::assertCount(1, $diagnostics, "duplicate must surface when pulling {$doc->uri}");
+            self::assertSame('xphp.definition', $diagnostics[0]->code);
+            self::assertStringContainsString('already declared', $diagnostics[0]->message);
+        }
+    }
+
     public function testWorkspaceDiagnosticsTranslateToLspWireFormatRanges(): void
     {
         // Locks the array_map translation on line 96. Without it, the

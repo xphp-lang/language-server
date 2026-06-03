@@ -36,11 +36,7 @@ Feature: Diagnostics
     Then a "xphp.undefined-name" diagnostic is reported saying "nul"
     And the "xphp.undefined-name" diagnostic underlines "nul"
 
-  # Deferred: the per-file pull provider treats the analyzed file as canonical,
-  # so the duplicate is flagged on the OTHER open file. Surfacing it on the
-  # edited file needs the roadmap's cross-file diagnostic broadcast.
-  @todo
-  Scenario: Report a duplicate template declaration
+  Scenario: Report a duplicate template declaration on the edited file
     Given the file at "/BoxOne.xphp" contains the following lines:
       """
       <?php
@@ -56,6 +52,7 @@ Feature: Diagnostics
     And the FQN index has been warmed on initialize
     When I analyze "/BoxTwo.xphp" for diagnostics
     Then a "xphp.definition" diagnostic is reported saying "already declared"
+    And the "xphp.definition" diagnostic underlines "Box"
 
   Scenario: Report a generic bound violation
     Given the file at "/Box.xphp" contains the following lines:

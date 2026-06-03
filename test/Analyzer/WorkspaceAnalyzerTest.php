@@ -191,17 +191,25 @@ final class WorkspaceAnalyzerTest extends TestCase
 
         $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
 
-        // The second declaration encountered carries the duplicate-declaration diagnostic.
-        // Iteration order over $files is insertion order, so BoxOne wins, BoxTwo gets the error.
-        self::assertSame([], $diagnostics['/BoxOne.xphp']);
+        // A duplicate is a property of ALL colliding declarations, not of
+        // iteration order: BOTH files carry the diagnostic (each naming the
+        // other). This is what lets the pull provider surface the duplicate on
+        // whichever file the editor is looking at.
+        self::assertCount(1, $diagnostics['/BoxOne.xphp']);
         self::assertCount(1, $diagnostics['/BoxTwo.xphp']);
-        $d = $diagnostics['/BoxTwo.xphp'][0];
-        self::assertStringContainsString('already declared', $d->message);
-        self::assertSame(DiagnosticCode::Definition, $d->code);
+        $one = $diagnostics['/BoxOne.xphp'][0];
+        $two = $diagnostics['/BoxTwo.xphp'][0];
+        self::assertStringContainsString('already declared', $one->message);
+        self::assertStringContainsString('already declared', $two->message);
+        // Each diagnostic names the OTHER file as the collision site.
+        self::assertStringContainsString('/BoxTwo.xphp', $one->message);
+        self::assertStringContainsString('/BoxOne.xphp', $two->message);
+        self::assertSame(DiagnosticCode::Definition, $one->code);
+        self::assertSame(DiagnosticCode::Definition, $two->code);
         // Column accuracy: the diagnostic must point at the duplicate class
         // identifier (`Box`, 3 chars), not span the whole line. Locks the
         // `getEndFilePos() + 1` arithmetic against off-by-one regressions.
-        self::assertSame(3, $d->endCharacter - $d->startCharacter, 'range must span just the `Box` identifier');
+        self::assertSame(3, $two->endCharacter - $two->startCharacter, 'range must span just the `Box` identifier');
     }
 
     public function testHierarchyAstsEnrichBoundCheckWithoutBeingWalked(): void
