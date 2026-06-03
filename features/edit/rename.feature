@@ -23,3 +23,4 @@ Feature: Rename symbol
     Then the rename touches 2 files
     And the rename applies 3 edits
     And every rename edit inserts "Customer"
+    And every rename edit covers "User"

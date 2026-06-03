@@ -83,6 +83,23 @@ final class EditContext implements Context
         }
     }
 
+    /**
+     * @Then every rename edit covers :text
+     */
+    public function everyRenameEditCovers(string $text): void
+    {
+        foreach ($this->renameDocumentChanges() as $change) {
+            $uri = $change->textDocument->uri ?? '';
+            foreach ($change->edits ?? [] as $edit) {
+                $covered = $this->world->textForRange($uri, $edit->range);
+                $this->world->assert(
+                    $covered === $text,
+                    sprintf('expected every rename edit to cover "%s", got "%s"', $text, $covered),
+                );
+            }
+        }
+    }
+
     /** @return list<object> TextDocumentEdit entries */
     private function renameDocumentChanges(): array
     {
@@ -102,6 +119,21 @@ final class EditContext implements Context
     {
         $params = new RenameFilesParams([new FileRename($oldUri, $newUri)]);
         $this->world->request('workspace/willRenameFiles', $params);
+    }
+
+    /**
+     * @Then a willRename edit inserts :text
+     */
+    public function aWillRenameEditInserts(string $text): void
+    {
+        foreach ($this->renameDocumentChanges() as $change) {
+            foreach ($change->edits ?? [] as $edit) {
+                if ($edit->newText === $text) {
+                    return;
+                }
+            }
+        }
+        $this->world->fail(sprintf('expected a willRename edit inserting "%s"', $text));
     }
 
     // ---- code actions ------------------------------------------------------
@@ -154,6 +186,82 @@ final class EditContext implements Context
         $this->world->fail(sprintf('expected a code action titled "%s"; got: [%s]', $title, implode(', ', $titles)));
     }
 
+    /**
+     * @Then the :title action has kind :kind
+     */
+    public function theActionHasKind(string $title, string $kind): void
+    {
+        $action = $this->findAction($title);
+        $this->world->assert(
+            $action->kind === $kind,
+            sprintf('expected action "%s" to have kind "%s", got "%s"', $title, $kind, (string) $action->kind),
+        );
+    }
+
+    /**
+     * @Then the :title action inserts :text
+     */
+    public function theActionInserts(string $title, string $text): void
+    {
+        foreach ($this->actionEdits($this->findAction($title)) as $entry) {
+            if (trim($entry['edit']->newText) === trim($text)) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected the "%s" action to insert "%s"', $title, $text));
+    }
+
+    /**
+     * @Then the :title action removes the :text line
+     */
+    public function theActionRemovesTheLine(string $title, string $text): void
+    {
+        foreach ($this->actionEdits($this->findAction($title)) as $entry) {
+            $covered = $this->world->textForRange($entry['uri'], $entry['edit']->range);
+            if ($entry['edit']->newText === '' && trim($covered) === trim($text)) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected the "%s" action to delete the "%s" line', $title, $text));
+    }
+
+    /**
+     * @Then the :title action replaces :old with :new
+     */
+    public function theActionReplaces(string $title, string $old, string $new): void
+    {
+        foreach ($this->actionEdits($this->findAction($title)) as $entry) {
+            $covered = $this->world->textForRange($entry['uri'], $entry['edit']->range);
+            if ($entry['edit']->newText === $new && $covered === $old) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected the "%s" action to replace "%s" with "%s"', $title, $old, $new));
+    }
+
+    private function findAction(string $title): CodeAction
+    {
+        foreach ((array) $this->world->last() as $action) {
+            if ($action instanceof CodeAction && $action->title === $title) {
+                return $action;
+            }
+        }
+        $this->world->fail(sprintf('no code action titled "%s"', $title));
+    }
+
+    /** @return list<array{uri:string, edit:object}> */
+    private function actionEdits(CodeAction $action): array
+    {
+        $out = [];
+        foreach ($action->edit->documentChanges ?? [] as $change) {
+            $uri = $change->textDocument->uri ?? '';
+            foreach ($change->edits ?? [] as $edit) {
+                $out[] = ['uri' => $uri, 'edit' => $edit];
+            }
+        }
+        return $out;
+    }
+
     // ---- code lens ---------------------------------------------------------
 
     /**
@@ -193,16 +301,33 @@ final class EditContext implements Context
     }
 
     /**
-     * @Then the resolved lens mentions a usage count
+     * @Then the resolved lens reads :title
      */
-    public function theResolvedLensMentionsAUsageCount(): void
+    public function theResolvedLensReads(string $title): void
     {
         $lens = $this->world->last();
         $this->world->assert($lens instanceof CodeLens && $lens->command !== null, 'expected a resolved code lens with a command');
-        $title = $lens->command->title;
         $this->world->assert(
-            preg_match('/^\d+ usages?$/', $title) === 1,
-            sprintf('expected resolved lens to read "<n> usage(s)", got "%s"', $title),
+            $lens->command->title === $title,
+            sprintf('expected resolved lens to read "%s", got "%s"', $title, $lens->command->title),
+        );
+    }
+
+    /**
+     * @Then the resolved lens carries the reference locations
+     */
+    public function theResolvedLensCarriesTheReferenceLocations(): void
+    {
+        $lens = $this->world->last();
+        $this->world->assert($lens instanceof CodeLens && $lens->command !== null, 'expected a resolved code lens with a command');
+        $this->world->assert(
+            $lens->command->command === 'editor.action.showReferences',
+            sprintf('expected showReferences command, got "%s"', (string) $lens->command->command),
+        );
+        $args = $lens->command->arguments ?? [];
+        $this->world->assert(
+            isset($args[2]) && is_array($args[2]) && $args[2] !== [],
+            'expected the resolved lens to carry a non-empty locations array',
         );
     }
 }

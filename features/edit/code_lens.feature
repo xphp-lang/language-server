@@ -27,4 +27,5 @@ Feature: Code lens
   Scenario: Resolve a lens to a usage count
     When I request code lenses for "/Foo.xphp"
     And I resolve the first code lens
-    Then the resolved lens mentions a usage count
+    Then the resolved lens reads "2 usages"
+    And the resolved lens carries the reference locations

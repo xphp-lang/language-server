@@ -21,3 +21,4 @@ Feature: Rename class on file rename
   Scenario: Renaming the file renames the class and updates the importer
     When I rename the file "file:///Collection.xphp" to "file:///Zollection.xphp"
     Then the rename touches 2 files
+    And a willRename edit inserts "Zollection"

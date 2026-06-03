@@ -32,11 +32,17 @@ Feature: Code actions
   Scenario: Offer to import an unresolved class
     When I request code actions on "User" at line 2 of "/Demos/Make.xphp"
     Then a code action titled "Import App\Models\User" is offered
+    And the "Import App\Models\User" action has kind "refactor.rewrite"
+    And the "Import App\Models\User" action inserts "use App\Models\User;"
 
   Scenario: Offer to remove an unused import
     When I request code actions on "Unused" at line 2 of "/Unused.xphp"
     Then a code action titled "Optimize imports" is offered
+    And the "Optimize imports" action has kind "source.organizeImports"
+    And the "Optimize imports" action removes the "use App\Other\Unused;" line
 
   Scenario: Offer to fix an undefined-name typo
     When I request code actions for an undefined-name diagnostic on "nul" at line 1 of "/Typo.xphp"
     Then a code action titled 'Change to "null"' is offered
+    And the 'Change to "null"' action has kind "quickfix"
+    And the 'Change to "null"' action replaces "nul" with "null"
