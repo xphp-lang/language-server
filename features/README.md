@@ -26,14 +26,20 @@ leading-slash URIs (`/Foo.xphp`) for handlers that go through worse-reflection.
 
 ## Step definitions
 
-The step definitions live in `test/Behat/`, split to mirror the themes:
+The step definitions live in `test/Behat/` as plain context classes:
 
-- `WorldTrait` — the shared world: the `LanguageServerTester` (real dispatcher),
-  the fixture Givens (which open documents through the server), the generic
-  request dispatch, and the position/assertion helpers.
-- `NavigateSteps`, `EditSteps`, `UnderstandSteps`, `ValidateSteps`, `FindSteps`
-  — the When/Then steps for each theme.
-- `FeatureContext` — a thin aggregator that composes the traits.
+- `World` — the shared per-scenario state + helpers: the `LanguageServerTester`
+  (real dispatcher), the request dispatch, and the fixture/position/assertion
+  helpers. It is **constructor-injected** into every context and a fresh one is
+  used per scenario/example.
+- `WorldArgumentResolver` + `WorldExtension` — the Behat extension that performs
+  that injection (tagged `context.argument_resolver`) and resets the `World`
+  before each scenario/example (tagged `event_dispatcher.subscriber`).
+- `ServerContext` — the cross-theme fixture Givens and the generic request
+  dispatchers.
+- `NavigateContext`, `EditContext`, `UnderstandContext`, `ValidateContext`,
+  `FindContext` — the When/Then steps for each theme, delegating to the injected
+  `World`.
 
 ## Running
 

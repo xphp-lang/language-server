@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace XPHP\Lsp\Test\Behat;
 
+use Behat\Behat\Context\Context;
 use Phpactor\LanguageServerProtocol\Hover;
 use Phpactor\LanguageServerProtocol\InlayHint;
 use Phpactor\LanguageServerProtocol\MarkupContent;
@@ -18,17 +19,21 @@ use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
  * Steps for the Understand theme: hover, signature help, inlay hints, folding
  * ranges, and semantic tokens.
  */
-trait UnderstandSteps
+final class UnderstandContext implements Context
 {
+    public function __construct(private readonly World $world)
+    {
+    }
+
     /**
      * @When I request signature help after :needle at line :line of :path
      */
     public function iRequestSignatureHelpAfterAtLineOf(string $needle, int $line, string $path): void
     {
-        $start = $this->positionOfNeedle($path, $line, $needle);
+        $start = $this->world->positionOfNeedle($path, $line, $needle);
         $cursor = new Position($start->line, $start->character + strlen($needle));
         $params = new SignatureHelpParams(new TextDocumentIdentifier($path), $cursor);
-        $this->lastResponse = $this->request('textDocument/signatureHelp', $params);
+        $this->world->request('textDocument/signatureHelp', $params);
     }
 
     /**
@@ -36,12 +41,12 @@ trait UnderstandSteps
      */
     public function theActiveSignatureLabelContains(string $text): void
     {
-        $help = $this->lastResponse;
-        $this->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
+        $help = $this->world->last();
+        $this->world->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
         $index = $help->activeSignature ?? 0;
         $signature = $help->signatures[$index] ?? $help->signatures[0] ?? null;
-        $this->assert($signature !== null, 'expected at least one signature');
-        $this->assert(
+        $this->world->assert($signature !== null, 'expected at least one signature');
+        $this->world->assert(
             str_contains($signature->label, $text),
             sprintf('expected active signature label to contain "%s", got "%s"', $text, $signature->label),
         );
@@ -52,9 +57,9 @@ trait UnderstandSteps
      */
     public function theActiveParameterIs(int $index): void
     {
-        $help = $this->lastResponse;
-        $this->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
-        $this->assert(
+        $help = $this->world->last();
+        $this->world->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
+        $this->world->assert(
             $help->activeParameter === $index,
             sprintf('expected active parameter %d, got %s', $index, var_export($help->activeParameter, true)),
         );
@@ -73,10 +78,10 @@ trait UnderstandSteps
      */
     public function theSemanticTokensAreNonEmpty(): void
     {
-        $tokens = $this->lastResponse;
-        $this->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
-        $this->assert($tokens->data !== [], 'expected a non-empty token stream');
-        $this->assert(count($tokens->data) % 5 === 0, 'expected the token stream length to be a multiple of 5');
+        $tokens = $this->world->last();
+        $this->world->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
+        $this->world->assert($tokens->data !== [], 'expected a non-empty token stream');
+        $this->world->assert(count($tokens->data) % 5 === 0, 'expected the token stream length to be a multiple of 5');
     }
 
     /**
@@ -84,10 +89,10 @@ trait UnderstandSteps
      */
     public function theSemanticTokensIncludeAToken(string $type): void
     {
-        $tokens = $this->lastResponse;
-        $this->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
+        $tokens = $this->world->last();
+        $this->world->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
         $typeIndex = array_search($type, TokenLegend::TOKEN_TYPES, true);
-        $this->assert($typeIndex !== false, "unknown token type: {$type}");
+        $this->world->assert($typeIndex !== false, "unknown token type: {$type}");
 
         // Packed as 5 ints per token; the type index is the 4th of each tuple.
         for ($i = 0; $i + 4 < count($tokens->data); $i += 5) {
@@ -95,7 +100,7 @@ trait UnderstandSteps
                 return;
             }
         }
-        $this->fail(sprintf('expected a "%s" (index %d) token in the stream', $type, $typeIndex));
+        $this->world->fail(sprintf('expected a "%s" (index %d) token in the stream', $type, $typeIndex));
     }
 
     /**
@@ -103,10 +108,11 @@ trait UnderstandSteps
      */
     public function theResponseContainsFoldingRanges(int $count): void
     {
-        $this->assert(is_array($this->lastResponse), 'expected a folding-range list response');
-        $this->assert(
-            count($this->lastResponse) === $count,
-            sprintf('expected %d folding ranges, got %d', $count, count($this->lastResponse)),
+        $response = $this->world->last();
+        $this->world->assert(is_array($response), 'expected a folding-range list response');
+        $this->world->assert(
+            count($response) === $count,
+            sprintf('expected %d folding ranges, got %d', $count, count($response)),
         );
     }
 
@@ -116,13 +122,13 @@ trait UnderstandSteps
     public function aFoldingRangeSpansLinesTo(int $start, int $end): void
     {
         $seen = [];
-        foreach ((array) $this->lastResponse as $range) {
+        foreach ((array) $this->world->last() as $range) {
             $seen[] = sprintf('%d-%d', $range->startLine, $range->endLine);
             if ($range->startLine === $start && $range->endLine === $end) {
                 return;
             }
         }
-        $this->fail(sprintf('expected a folding range %d-%d; got: [%s]', $start, $end, implode(', ', $seen)));
+        $this->world->fail(sprintf('expected a folding range %d-%d; got: [%s]', $start, $end, implode(', ', $seen)));
     }
 
     /**
@@ -130,9 +136,9 @@ trait UnderstandSteps
      */
     public function thereIsNoHover(): void
     {
-        $this->assert(
-            $this->lastResponse === null,
-            'expected no hover, got ' . get_debug_type($this->lastResponse),
+        $this->world->assert(
+            $this->world->last() === null,
+            'expected no hover, got ' . get_debug_type($this->world->last()),
         );
     }
 
@@ -141,8 +147,8 @@ trait UnderstandSteps
      */
     public function anInlayHintIsRenderedAfterOnLine(string $label, string $var, int $line): void
     {
-        $hints = $this->lastResponse;
-        $this->assert(is_array($hints), 'expected an inlay-hint list response');
+        $hints = $this->world->last();
+        $this->world->assert(is_array($hints), 'expected an inlay-hint list response');
 
         $seen = [];
         foreach ($hints as $hint) {
@@ -156,7 +162,7 @@ trait UnderstandSteps
             }
         }
 
-        $this->fail(sprintf(
+        $this->world->fail(sprintf(
             'no inlay hint "%s" on line %d (after "%s"); got: [%s]',
             $label,
             $line,
@@ -167,11 +173,11 @@ trait UnderstandSteps
 
     private function assertHoverContains(string $needle): void
     {
-        $hover = $this->lastResponse;
-        $this->assert($hover instanceof Hover, 'expected a Hover response, got ' . get_debug_type($hover));
+        $hover = $this->world->last();
+        $this->world->assert($hover instanceof Hover, 'expected a Hover response, got ' . get_debug_type($hover));
         $contents = $hover->contents;
         $text = $contents instanceof MarkupContent ? $contents->value : (is_string($contents) ? $contents : '');
-        $this->assert(
+        $this->world->assert(
             str_contains($text, $needle),
             sprintf('expected hover contents to contain "%s", got: %s', $needle, $text === '' ? '<empty>' : $text),
         );

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace XPHP\Lsp\Test\Behat;
 
+use Behat\Behat\Context\Context;
 use Phpactor\LanguageServerProtocol\DocumentSymbol;
 use Phpactor\LanguageServerProtocol\SymbolKind;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
@@ -15,10 +16,14 @@ use Phpactor\LanguageServerProtocol\WorkspaceSymbolParams;
  * implementation, document/workspace symbols, document highlight, and the call
  * & type hierarchies.
  */
-trait NavigateSteps
+final class NavigateContext implements Context
 {
     /** @var array<string, mixed> the hierarchy item resolved by a prepare step */
     private array $hierarchyItem = [];
+
+    public function __construct(private readonly World $world)
+    {
+    }
 
     // ---- call hierarchy ----------------------------------------------------
 
@@ -27,9 +32,8 @@ trait NavigateSteps
      */
     public function iPrepareCallHierarchyOnAtLineOf(string $needle, int $line, string $path): void
     {
-        $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->positionOfNeedle($path, $line, $needle));
-        $items = $this->request('textDocument/prepareCallHierarchy', $params);
-        $this->lastResponse = $items;
+        $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->world->positionOfNeedle($path, $line, $needle));
+        $items = $this->world->request('textDocument/prepareCallHierarchy', $params);
         $this->hierarchyItem = $this->itemDict(is_array($items) ? ($items[0] ?? null) : null, $path);
     }
 
@@ -38,7 +42,7 @@ trait NavigateSteps
      */
     public function iRequestIncomingCalls(): void
     {
-        $this->lastResponse = $this->request('callHierarchy/incomingCalls', ['item' => $this->hierarchyItem]);
+        $this->world->request('callHierarchy/incomingCalls', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -46,7 +50,7 @@ trait NavigateSteps
      */
     public function iRequestOutgoingCalls(): void
     {
-        $this->lastResponse = $this->request('callHierarchy/outgoingCalls', ['item' => $this->hierarchyItem]);
+        $this->world->request('callHierarchy/outgoingCalls', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -54,8 +58,8 @@ trait NavigateSteps
      */
     public function thePreparedItemIsNamed(string $name): void
     {
-        $names = $this->hierarchyNames($this->lastResponse, 'name');
-        $this->assert(
+        $names = $this->hierarchyNames($this->world->last(), 'name');
+        $this->world->assert(
             in_array($name, $names, true),
             sprintf('expected a prepared item named "%s"; got: [%s]', $name, implode(', ', $names)),
         );
@@ -66,8 +70,8 @@ trait NavigateSteps
      */
     public function anIncomingCallComesFrom(string $name): void
     {
-        $names = $this->hierarchyNames($this->lastResponse, 'from');
-        $this->assert(
+        $names = $this->hierarchyNames($this->world->last(), 'from');
+        $this->world->assert(
             $this->anyContains($names, $name),
             sprintf('expected an incoming call from "%s"; got: [%s]', $name, implode(', ', $names)),
         );
@@ -78,8 +82,8 @@ trait NavigateSteps
      */
     public function anOutgoingCallGoesTo(string $name): void
     {
-        $names = $this->hierarchyNames($this->lastResponse, 'to');
-        $this->assert(
+        $names = $this->hierarchyNames($this->world->last(), 'to');
+        $this->world->assert(
             $this->anyContains($names, $name),
             sprintf('expected an outgoing call to "%s"; got: [%s]', $name, implode(', ', $names)),
         );
@@ -102,12 +106,11 @@ trait NavigateSteps
      * Pull a name list out of a hierarchy response. $field is 'name' (prepared
      * items), 'from' (incoming) or 'to' (outgoing).
      *
-     * @param mixed $response
      * @return list<string>
      */
     private function hierarchyNames(mixed $response, string $field): array
     {
-        $this->assert(is_array($response), 'expected a hierarchy list response');
+        $this->world->assert(is_array($response), 'expected a hierarchy list response');
         $names = [];
         foreach ($response as $entry) {
             $target = match ($field) {
@@ -152,9 +155,8 @@ trait NavigateSteps
      */
     public function iPrepareTypeHierarchyOnAtLineOf(string $needle, int $line, string $path): void
     {
-        $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->positionOfNeedle($path, $line, $needle));
-        $items = $this->request('textDocument/prepareTypeHierarchy', $params);
-        $this->lastResponse = $items;
+        $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->world->positionOfNeedle($path, $line, $needle));
+        $items = $this->world->request('textDocument/prepareTypeHierarchy', $params);
         $this->hierarchyItem = $this->itemDict(is_array($items) ? ($items[0] ?? null) : null, $path);
     }
 
@@ -163,7 +165,7 @@ trait NavigateSteps
      */
     public function iRequestSupertypes(): void
     {
-        $this->lastResponse = $this->request('typeHierarchy/supertypes', ['item' => $this->hierarchyItem]);
+        $this->world->request('typeHierarchy/supertypes', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -171,7 +173,7 @@ trait NavigateSteps
      */
     public function iRequestSubtypes(): void
     {
-        $this->lastResponse = $this->request('typeHierarchy/subtypes', ['item' => $this->hierarchyItem]);
+        $this->world->request('typeHierarchy/subtypes', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -192,28 +194,30 @@ trait NavigateSteps
 
     private function assertRelatedTypeNamed(string $name, string $label): void
     {
-        $names = $this->hierarchyNames($this->lastResponse, 'name');
-        $this->assert(
+        $names = $this->hierarchyNames($this->world->last(), 'name');
+        $this->world->assert(
             in_array($name, $names, true),
             sprintf('expected a %s named "%s"; got: [%s]', $label, $name, implode(', ', $names)),
         );
     }
+
+    // ---- definition / references / highlight / symbols ---------------------
 
     /**
      * @Then the response points to :path
      */
     public function theResponsePointsTo(string $path): void
     {
-        $location = $this->expectLocation();
+        $location = $this->world->expectLocation();
         $uri = $location->uri;
-        $bare = $this->stripFileScheme($uri);
+        $bare = $this->world->stripFileScheme($uri);
         // Open-doc handlers return the bare workspace uri; worse-reflection-backed
         // handlers (typeDefinition) emit file:// URIs -- accept either.
         $ok = $uri === $path
             || $bare === $path
             || str_ends_with($uri, '/' . $path)
             || str_ends_with($bare, '/' . $path);
-        $this->assert($ok, sprintf('expected response to point to "%s", got "%s"', $path, $uri));
+        $this->world->assert($ok, sprintf('expected response to point to "%s", got "%s"', $path, $uri));
     }
 
     /**
@@ -221,8 +225,8 @@ trait NavigateSteps
      */
     public function theResponseContainsLocations(int $count): void
     {
-        $uris = $this->locationUris($this->lastResponse);
-        $this->assert(
+        $uris = $this->world->locationUris($this->world->last());
+        $this->world->assert(
             count($uris) === $count,
             sprintf('expected %d locations, got %d: [%s]', $count, count($uris), implode(', ', $uris)),
         );
@@ -233,7 +237,7 @@ trait NavigateSteps
      */
     public function iSearchWorkspaceSymbolsFor(string $query): void
     {
-        $this->lastResponse = $this->request('workspace/symbol', new WorkspaceSymbolParams($query));
+        $this->world->request('workspace/symbol', new WorkspaceSymbolParams($query));
     }
 
     /**
@@ -242,7 +246,7 @@ trait NavigateSteps
     public function theWorkspaceSymbolsInclude(string $name): void
     {
         $names = $this->symbolNames();
-        $this->assert(
+        $this->world->assert(
             in_array($name, $names, true),
             sprintf('expected workspace symbols to include "%s"; got: [%s]', $name, implode(', ', $names)),
         );
@@ -254,7 +258,7 @@ trait NavigateSteps
     public function theWorkspaceSymbolsExclude(string $name): void
     {
         $names = $this->symbolNames();
-        $this->assert(
+        $this->world->assert(
             !in_array($name, $names, true),
             sprintf('expected workspace symbols to exclude "%s"; got: [%s]', $name, implode(', ', $names)),
         );
@@ -263,9 +267,10 @@ trait NavigateSteps
     /** @return list<string> */
     private function symbolNames(): array
     {
-        $this->assert(is_array($this->lastResponse), 'expected a workspace-symbol list response');
+        $response = $this->world->last();
+        $this->world->assert(is_array($response), 'expected a workspace-symbol list response');
         $names = [];
-        foreach ($this->lastResponse as $symbol) {
+        foreach ($response as $symbol) {
             if (is_object($symbol) && isset($symbol->name)) {
                 $names[] = $symbol->name;
             }
@@ -278,10 +283,10 @@ trait NavigateSteps
      */
     public function theDocumentOutlineContainsANamed(string $kind, string $name): void
     {
-        $this->assert(is_array($this->lastResponse), 'expected a document-symbol list response');
-        $wantKind = $this->symbolKind($kind);
-        $found = $this->findSymbol($this->lastResponse, $name, $wantKind);
-        $this->assert(
+        $response = $this->world->last();
+        $this->world->assert(is_array($response), 'expected a document-symbol list response');
+        $found = $this->findSymbol($response, $name, $this->symbolKind($kind));
+        $this->world->assert(
             $found,
             sprintf('expected outline to contain a %s named "%s"', $kind, $name),
         );
@@ -326,10 +331,11 @@ trait NavigateSteps
      */
     public function theResponseContainsHighlights(int $count): void
     {
-        $this->assert(is_array($this->lastResponse), 'expected a highlight list response');
-        $this->assert(
-            count($this->lastResponse) === $count,
-            sprintf('expected %d highlights, got %d', $count, count($this->lastResponse)),
+        $response = $this->world->last();
+        $this->world->assert(is_array($response), 'expected a highlight list response');
+        $this->world->assert(
+            count($response) === $count,
+            sprintf('expected %d highlights, got %d', $count, count($response)),
         );
     }
 
@@ -338,13 +344,13 @@ trait NavigateSteps
      */
     public function theResponseIncludesALocationIn(string $path): void
     {
-        $uris = $this->locationUris($this->lastResponse);
+        $uris = $this->world->locationUris($this->world->last());
         foreach ($uris as $uri) {
-            if ($uri === $path || $this->stripFileScheme($uri) === $path || str_ends_with($uri, '/' . $path)) {
+            if ($uri === $path || $this->world->stripFileScheme($uri) === $path || str_ends_with($uri, '/' . $path)) {
                 return;
             }
         }
-        $this->fail(sprintf('expected a location in "%s"; got: [%s]', $path, implode(', ', $uris)));
+        $this->world->fail(sprintf('expected a location in "%s"; got: [%s]', $path, implode(', ', $uris)));
     }
 
     /**
@@ -352,8 +358,8 @@ trait NavigateSteps
      */
     public function theTargetRangeCoversTheClassName(string $name): void
     {
-        $covered = $this->textInRange($this->expectLocation());
-        $this->assert(
+        $covered = $this->world->textInRange($this->world->expectLocation());
+        $this->world->assert(
             $covered === $name,
             sprintf('expected target range to cover "%s", got "%s"', $name, $covered),
         );
@@ -364,8 +370,8 @@ trait NavigateSteps
      */
     public function theTargetRangeCoversTheMethodDeclaration(string $name): void
     {
-        $covered = $this->textInRange($this->expectLocation());
-        $this->assert(
+        $covered = $this->world->textInRange($this->world->expectLocation());
+        $this->world->assert(
             $covered === $name,
             sprintf('expected target range to cover "%s", got "%s"', $name, $covered),
         );

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace XPHP\Lsp\Test\Behat;
 
+use Behat\Behat\Context\Context;
 use Phpactor\LanguageServerProtocol\CodeAction;
 use Phpactor\LanguageServerProtocol\CodeActionContext;
 use Phpactor\LanguageServerProtocol\CodeActionParams;
@@ -12,8 +13,8 @@ use Phpactor\LanguageServerProtocol\CodeLensParams;
 use Phpactor\LanguageServerProtocol\Diagnostic;
 use Phpactor\LanguageServerProtocol\FileRename;
 use Phpactor\LanguageServerProtocol\Position;
-use Phpactor\LanguageServerProtocol\RenameFilesParams;
 use Phpactor\LanguageServerProtocol\Range;
+use Phpactor\LanguageServerProtocol\RenameFilesParams;
 use Phpactor\LanguageServerProtocol\RenameParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use XPHP\Lsp\Analyzer\DiagnosticCode;
@@ -22,8 +23,12 @@ use XPHP\Lsp\Analyzer\DiagnosticCode;
  * Steps for the Edit theme: rename, code actions, code lens, and
  * workspace/willRenameFiles.
  */
-trait EditSteps
+final class EditContext implements Context
 {
+    public function __construct(private readonly World $world)
+    {
+    }
+
     // ---- rename ------------------------------------------------------------
 
     /**
@@ -33,10 +38,10 @@ trait EditSteps
     {
         $params = new RenameParams(
             new TextDocumentIdentifier($path),
-            $this->positionOfNeedle($path, $line, $needle),
+            $this->world->positionOfNeedle($path, $line, $needle),
             $newName,
         );
-        $this->lastResponse = $this->request('textDocument/rename', $params);
+        $this->world->request('textDocument/rename', $params);
     }
 
     /**
@@ -45,7 +50,7 @@ trait EditSteps
     public function theRenameTouchesFiles(int $count): void
     {
         $changes = $this->renameDocumentChanges();
-        $this->assert(
+        $this->world->assert(
             count($changes) === $count,
             sprintf('expected the rename to touch %d files, got %d', $count, count($changes)),
         );
@@ -60,7 +65,7 @@ trait EditSteps
         foreach ($this->renameDocumentChanges() as $change) {
             $total += count($change->edits ?? []);
         }
-        $this->assert($total === $count, sprintf('expected %d rename edits, got %d', $count, $total));
+        $this->world->assert($total === $count, sprintf('expected %d rename edits, got %d', $count, $total));
     }
 
     /**
@@ -70,7 +75,7 @@ trait EditSteps
     {
         foreach ($this->renameDocumentChanges() as $change) {
             foreach ($change->edits ?? [] as $edit) {
-                $this->assert(
+                $this->world->assert(
                     $edit->newText === $text,
                     sprintf('expected every rename edit to insert "%s", saw "%s"', $text, $edit->newText),
                 );
@@ -81,10 +86,10 @@ trait EditSteps
     /** @return list<object> TextDocumentEdit entries */
     private function renameDocumentChanges(): array
     {
-        $edit = $this->lastResponse;
-        $this->assert(is_object($edit), 'expected a WorkspaceEdit response, got ' . get_debug_type($edit));
+        $edit = $this->world->last();
+        $this->world->assert(is_object($edit), 'expected a WorkspaceEdit response, got ' . get_debug_type($edit));
         $changes = $edit->documentChanges ?? null;
-        $this->assert(is_array($changes), 'expected the WorkspaceEdit to carry documentChanges');
+        $this->world->assert(is_array($changes), 'expected the WorkspaceEdit to carry documentChanges');
         return $changes;
     }
 
@@ -96,7 +101,7 @@ trait EditSteps
     public function iRenameTheFileTo(string $oldUri, string $newUri): void
     {
         $params = new RenameFilesParams([new FileRename($oldUri, $newUri)]);
-        $this->lastResponse = $this->request('workspace/willRenameFiles', $params);
+        $this->world->request('workspace/willRenameFiles', $params);
     }
 
     // ---- code actions ------------------------------------------------------
@@ -106,13 +111,13 @@ trait EditSteps
      */
     public function iRequestCodeActionsOnAtLineOf(string $needle, int $line, string $path): void
     {
-        $pos = $this->positionOfNeedle($path, $line, $needle);
+        $pos = $this->world->positionOfNeedle($path, $line, $needle);
         $params = new CodeActionParams(
             new TextDocumentIdentifier($path),
             new Range($pos, $pos),
             new CodeActionContext([]),
         );
-        $this->lastResponse = $this->request('textDocument/codeAction', $params);
+        $this->world->request('textDocument/codeAction', $params);
     }
 
     /**
@@ -120,7 +125,7 @@ trait EditSteps
      */
     public function iRequestCodeActionsForADiagnosticOnAtLineOf(string $needle, int $line, string $path): void
     {
-        $start = $this->positionOfNeedle($path, $line, $needle);
+        $start = $this->world->positionOfNeedle($path, $line, $needle);
         $end = new Position($start->line, $start->character + strlen($needle));
         $range = new Range($start, $end);
         $diagnostic = new Diagnostic($range, "Undefined: {$needle}", null, DiagnosticCode::UndefinedName->value);
@@ -129,7 +134,7 @@ trait EditSteps
             $range,
             new CodeActionContext([$diagnostic]),
         );
-        $this->lastResponse = $this->request('textDocument/codeAction', $params);
+        $this->world->request('textDocument/codeAction', $params);
     }
 
     /**
@@ -138,7 +143,7 @@ trait EditSteps
     public function aCodeActionTitledIsOffered(string $title): void
     {
         $titles = [];
-        foreach ((array) $this->lastResponse as $action) {
+        foreach ((array) $this->world->last() as $action) {
             if ($action instanceof CodeAction) {
                 $titles[] = $action->title;
                 if ($action->title === $title) {
@@ -146,7 +151,7 @@ trait EditSteps
                 }
             }
         }
-        $this->fail(sprintf('expected a code action titled "%s"; got: [%s]', $title, implode(', ', $titles)));
+        $this->world->fail(sprintf('expected a code action titled "%s"; got: [%s]', $title, implode(', ', $titles)));
     }
 
     // ---- code lens ---------------------------------------------------------
@@ -157,7 +162,7 @@ trait EditSteps
     public function iRequestCodeLensesFor(string $path): void
     {
         $params = new CodeLensParams(new TextDocumentIdentifier($path));
-        $this->lastResponse = $this->request('textDocument/codeLens', $params);
+        $this->world->request('textDocument/codeLens', $params);
     }
 
     /**
@@ -165,9 +170,9 @@ trait EditSteps
      */
     public function iResolveTheFirstCodeLens(): void
     {
-        $lenses = $this->lastResponse;
-        $this->assert(is_array($lenses) && isset($lenses[0]) && $lenses[0] instanceof CodeLens, 'expected at least one code lens to resolve');
-        $this->lastResponse = $this->request('codeLens/resolve', $lenses[0]);
+        $lenses = $this->world->last();
+        $this->world->assert(is_array($lenses) && isset($lenses[0]) && $lenses[0] instanceof CodeLens, 'expected at least one code lens to resolve');
+        $this->world->request('codeLens/resolve', $lenses[0]);
     }
 
     /**
@@ -176,7 +181,7 @@ trait EditSteps
     public function aCodeLensTitledIsOffered(string $title): void
     {
         $titles = [];
-        foreach ((array) $this->lastResponse as $lens) {
+        foreach ((array) $this->world->last() as $lens) {
             if ($lens instanceof CodeLens && $lens->command !== null) {
                 $titles[] = $lens->command->title;
                 if ($lens->command->title === $title) {
@@ -184,7 +189,7 @@ trait EditSteps
                 }
             }
         }
-        $this->fail(sprintf('expected a code lens titled "%s"; got: [%s]', $title, implode(', ', $titles)));
+        $this->world->fail(sprintf('expected a code lens titled "%s"; got: [%s]', $title, implode(', ', $titles)));
     }
 
     /**
@@ -192,10 +197,10 @@ trait EditSteps
      */
     public function theResolvedLensMentionsAUsageCount(): void
     {
-        $lens = $this->lastResponse;
-        $this->assert($lens instanceof CodeLens && $lens->command !== null, 'expected a resolved code lens with a command');
+        $lens = $this->world->last();
+        $this->world->assert($lens instanceof CodeLens && $lens->command !== null, 'expected a resolved code lens with a command');
         $title = $lens->command->title;
-        $this->assert(
+        $this->world->assert(
             preg_match('/^\d+ usages?$/', $title) === 1,
             sprintf('expected resolved lens to read "<n> usage(s)", got "%s"', $title),
         );

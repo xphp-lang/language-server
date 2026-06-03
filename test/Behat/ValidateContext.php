@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace XPHP\Lsp\Test\Behat;
 
+use Behat\Behat\Context\Context;
+
 /**
  * Steps for the Validate theme: diagnostics (parse errors, generic bound
  * violations, duplicate templates, undefined barewords, constructor-arg
- * mismatches). Diagnostics are produced in-memory via XphpDiagnosticsProvider
+ * mismatches). Diagnostics are pulled through the real XphpPullDiagnosticsHandler
  * over the open workspace -- cross-file checks see every open document.
  */
-trait ValidateSteps
+final class ValidateContext implements Context
 {
+    public function __construct(private readonly World $world)
+    {
+    }
+
     /**
      * @When I analyze :path for diagnostics
      */
@@ -19,7 +25,7 @@ trait ValidateSteps
     {
         // Pull-mode diagnostics through the real XphpPullDiagnosticsHandler, which
         // returns a `{kind: 'full', items: [...]}` DocumentDiagnosticReport.
-        $this->lastResponse = $this->request('textDocument/diagnostic', ['textDocument' => ['uri' => $path]]);
+        $this->world->request('textDocument/diagnostic', ['textDocument' => ['uri' => $path]]);
     }
 
     /**
@@ -28,7 +34,7 @@ trait ValidateSteps
     public function aDiagnosticIsReported(string $code): void
     {
         $codes = $this->diagnosticCodes();
-        $this->assert(
+        $this->world->assert(
             in_array($code, $codes, true),
             sprintf('expected a "%s" diagnostic; got: [%s]', $code, implode(', ', $codes)),
         );
@@ -49,7 +55,7 @@ trait ValidateSteps
                 return;
             }
         }
-        $this->fail(sprintf(
+        $this->world->fail(sprintf(
             'expected a "%s" diagnostic saying "%s"; got messages: [%s]',
             $code,
             $text,
@@ -63,7 +69,7 @@ trait ValidateSteps
     public function noDiagnosticsAreReported(): void
     {
         $codes = $this->diagnosticCodes();
-        $this->assert($codes === [], 'expected no diagnostics; got: [' . implode(', ', $codes) . ']');
+        $this->world->assert($codes === [], 'expected no diagnostics; got: [' . implode(', ', $codes) . ']');
     }
 
     /** @return list<string> */
@@ -86,10 +92,10 @@ trait ValidateSteps
      */
     private function diagnosticItems(): array
     {
-        $report = $this->lastResponse;
-        $this->assert(is_array($report), 'expected a diagnostic report, got ' . get_debug_type($report));
+        $report = $this->world->last();
+        $this->world->assert(is_array($report), 'expected a diagnostic report, got ' . get_debug_type($report));
         $items = $report['items'] ?? $report;
-        $this->assert(is_array($items), 'expected the report to carry an items list');
+        $this->world->assert(is_array($items), 'expected the report to carry an items list');
         return array_values($items);
     }
 }
