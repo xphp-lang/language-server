@@ -21,6 +21,7 @@ use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Reflection\FqnIndex;
 use XPHP\Lsp\Reflection\ReflectorFactory;
 use XPHP\Lsp\Resolver\CompositeClassLikeLookup;
+use XPHP\Lsp\Resolver\DocumentHighlightKindResolver;
 use XPHP\Lsp\Resolver\FilesystemClassLikeLookup;
 use XPHP\Lsp\Resolver\GenericResolver;
 use XPHP\Lsp\Resolver\ReferenceFinder;
@@ -44,8 +45,11 @@ final class XphpDocumentHighlightHandlerTest extends TestCase
         self::assertCount(3, $highlights);
         foreach ($highlights as $h) {
             self::assertInstanceOf(DocumentHighlight::class, $h);
-            self::assertSame(DocumentHighlightKind::TEXT, $h->kind);
         }
+        // The declaration is a WRITE; the two use sites are READs.
+        $kinds = array_map(static fn (DocumentHighlight $h): int => $h->kind, $highlights);
+        self::assertCount(1, array_filter($kinds, static fn (int $k): bool => $k === DocumentHighlightKind::WRITE));
+        self::assertCount(2, array_filter($kinds, static fn (int $k): bool => $k === DocumentHighlightKind::READ));
     }
 
     public function testFiltersOutCrossFileMatches(): void
@@ -121,7 +125,7 @@ final class XphpDocumentHighlightHandlerTest extends TestCase
             );
             $generic = new GenericResolver($workspace, $cache, $classLikeLookup, $parser, $fqnIndex);
             $finder = new ReferenceFinder($workspace, $cache, $fqnIndex, $parser, $reflector, $generic);
-            $handler = new XphpDocumentHighlightHandler($workspace, $finder);
+            $handler = new XphpDocumentHighlightHandler($workspace, $finder, $cache, new DocumentHighlightKindResolver());
 
             // Cursor on `class User` -- two in-file matches (decl + new).
             $byte = strpos($source, 'class User') + strlen('class ');
@@ -264,6 +268,6 @@ final class XphpDocumentHighlightHandlerTest extends TestCase
         );
         $generic = new GenericResolver($workspace, $cache, $classLikeLookup, $parser, $fqnIndex);
         $finder = new ReferenceFinder($workspace, $cache, $fqnIndex, $parser, $reflector, $generic);
-        return new XphpDocumentHighlightHandler($workspace, $finder);
+        return new XphpDocumentHighlightHandler($workspace, $finder, $cache, new DocumentHighlightKindResolver());
     }
 }

@@ -17,3 +17,8 @@ Feature: Document highlight
     When I request "textDocument/documentHighlight" on "User" at line 2 of "/Use.xphp"
     Then the response contains 3 highlights
     And each highlight covers "User" in "/Use.xphp"
+
+  Scenario: Classify the declaration as a write and the uses as reads
+    When I request "textDocument/documentHighlight" on "User" at line 2 of "/Use.xphp"
+    Then a "write" highlight covers "User" in "/Use.xphp"
+    And a "read" highlight covers "User" in "/Use.xphp"

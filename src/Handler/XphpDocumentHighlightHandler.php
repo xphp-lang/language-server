@@ -14,7 +14,9 @@ use Phpactor\LanguageServerProtocol\DocumentHighlight;
 use Phpactor\LanguageServerProtocol\DocumentHighlightKind;
 use Phpactor\LanguageServerProtocol\DocumentHighlightParams;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
+use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\PositionMap;
+use XPHP\Lsp\Resolver\DocumentHighlightKindResolver;
 use XPHP\Lsp\Resolver\ReferenceFinder;
 
 /**
@@ -26,12 +28,10 @@ use XPHP\Lsp\Resolver\ReferenceFinder;
  * `textDocument/references` -- we run the same resolver and filter to
  * the requesting document only.
  *
- * We don't distinguish read / write / text kind today; everything is
- * reported as `DocumentHighlightKind::TEXT`, which clients render with
- * the default highlight colour.  Read/write classification needs nikic
- * AST parent-walk (assignment LHS vs RHS); not implemented here
- * because the LSP spec marks kind as optional and PhpStorm renders
- * TEXT identically to the other kinds anyway.
+ * Each occurrence is classified as `WRITE` (the symbol's declaration or
+ * an assignment / lvalue) or `READ` (a use site) via
+ * {@see DocumentHighlightKindResolver}, so clients that colour read vs.
+ * write (e.g. VS Code) paint them distinctly.
  *
  * Available since IntelliJ Platform 2025.3.
  */
@@ -40,6 +40,8 @@ final class XphpDocumentHighlightHandler implements Handler, CanRegisterCapabili
     public function __construct(
         private readonly PhpactorWorkspace $workspace,
         private readonly ReferenceFinder $finder,
+        private readonly ParsedDocumentCache $cache,
+        private readonly DocumentHighlightKindResolver $kindResolver,
     ) {
     }
 
@@ -68,7 +70,8 @@ final class XphpDocumentHighlightHandler implements Handler, CanRegisterCapabili
             return new Success([]);
         }
         $item = $this->workspace->get($uri);
-        $offset = (new PositionMap($item->text))->positionToOffset(
+        $positionMap = new PositionMap($item->text);
+        $offset = $positionMap->positionToOffset(
             $params->position->line,
             $params->position->character,
         );
@@ -86,11 +89,28 @@ final class XphpDocumentHighlightHandler implements Handler, CanRegisterCapabili
         // matches stay available through textDocument/references.
         $locations = $this->finder->findReferences($uri, $offset, true, $cancel, $uri);
 
-        $highlights = [];
+        // Classify each occurrence as read/write. The location ranges are in
+        // ORIGINAL-source coordinates; the resolver maps the AST's stripped
+        // offsets back to original, so the keys line up.
+        $targetOffsets = [];
         foreach ($locations as $location) {
+            $targetOffsets[] = $positionMap->positionToOffset(
+                $location->range->start->line,
+                $location->range->start->character,
+            );
+        }
+        $parsed = $this->cache->getOrParse($uri, $item->version, $item->text);
+        $kindByOffset = $parsed->ast !== null
+            ? $this->kindResolver->resolve($parsed->ast, $parsed->byteOffsetMap, $targetOffsets)
+            : [];
+
+        $highlights = [];
+        foreach ($locations as $i => $location) {
             $highlights[] = new DocumentHighlight(
                 range: $location->range,
-                kind: DocumentHighlightKind::TEXT,
+                // Default to READ for any occurrence the classifier didn't
+                // resolve (it's a use site) -- never silently drop a highlight.
+                kind: $kindByOffset[$targetOffsets[$i]] ?? DocumentHighlightKind::READ,
             );
         }
         return new Success($highlights);

@@ -247,6 +247,37 @@ final class NavigateContext implements Context
         }
     }
 
+    /**
+     * @Then a :kind highlight covers :text in :path
+     */
+    public function aKindHighlightCoversIn(string $kind, string $text, string $path): void
+    {
+        $kinds = ['text' => 1, 'read' => 2, 'write' => 3];
+        $this->world->assert(isset($kinds[$kind]), sprintf('unknown highlight kind: %s', $kind));
+        $wantKind = $kinds[$kind];
+
+        $highlights = $this->world->last();
+        $this->world->assert(is_array($highlights) && $highlights !== [], 'expected a non-empty highlight list');
+        $seen = [];
+        foreach ($highlights as $highlight) {
+            $covered = $this->world->textForRange($path, $highlight->range);
+            if ($covered !== $text) {
+                continue;
+            }
+            $seen[] = (int) $highlight->kind;
+            if ((int) $highlight->kind === $wantKind) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf(
+            'expected a "%s" (%d) highlight covering "%s"; kinds seen for that text: [%s]',
+            $kind,
+            $wantKind,
+            $text,
+            implode(', ', $seen) ?: '<none>',
+        ));
+    }
+
     private function matchesPath(string $uri, string $path): bool
     {
         return $uri === $path

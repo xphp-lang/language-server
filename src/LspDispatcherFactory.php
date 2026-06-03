@@ -314,6 +314,8 @@ final class LspDispatcherFactory implements DispatcherFactory
             new XphpDocumentHighlightHandler(
                 $workspace,
                 new ReferenceFinder($workspace, $cache, $fqnIndex, $xphpParser, $reflector, $genericResolver),
+                $cache,
+                new \XPHP\Lsp\Resolver\DocumentHighlightKindResolver(),
             ),
             new XphpRenameHandler(
                 $workspace,
