@@ -54,11 +54,7 @@ caps `symfony/console` at `^7` while the project pins `^8` via `xphp-lang/xphp`.
 
 ## @todo scenarios
 
-Deferred behavior is written as `@todo` scenarios that document the desired
+Deferred behavior can be written as `@todo` scenarios that document the desired
 outcome but are skipped (via the gherkin tag filter in `behat.dist.yml`), so the
-suite stays green on what's expected to work. Current `@todo`s:
-
-- go-to-definition through a generic **method** call (navigate/definition)
-- **duplicate-template** diagnostic on the edited file — the per-file pull
-  provider canonicalizes the edited file, so it surfaces on the other file;
-  needs the roadmap's cross-file diagnostic broadcast (validate/diagnostics)
+suite stays green on what's expected to work. There are currently none — every
+scenario runs.
