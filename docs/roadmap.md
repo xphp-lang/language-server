@@ -41,20 +41,49 @@ Features grouped by theme, not chronological or priority ordering:
 ```mermaid
 timeline
     section Shipped
-        Navigation: definition: typeDefinition: references: implementation: call hierarchy: type hierarchy: documentSymbol: workspaceSymbol: documentHighlight
-        Editing: rename: willRenameFiles: codeAction + resolve: codeLens + resolve
-        Understanding: hover: signatureHelp: inlayHint: foldingRange: semanticTokens
-        Validation: parse: bound: duplicate-template: undefined-bareword: ctor-arg-mismatch
+        Navigation: definition: typeDefinition: references (incl. constructor usages): implementation: call hierarchy: type hierarchy: documentSymbol: workspaceSymbol: documentHighlight (read/write)
+        Editing: rename: willRenameFiles: codeAction + resolve: codeLens + resolve: bound-error fix-its
+        Understanding: hover: signatureHelp: inlayHint: foldingRange: semanticTokens (interpolation + non-ASCII)
+        Validation: parse: bound: duplicate-template: undefined-bareword: ctor-arg-mismatch: arg-mismatch (method/static/function): cross-file broadcast
         Completion: type-arg + member + static + variable: scope-aware insertText: completionItem/resolve
-        Performance: warm AST cache: stub cache: tolerant parse: UTF-16 columns: short-name tie-break: lint mode
+        Performance: warm AST cache: stub cache: tolerant parse: UTF-16 columns: proximity-aware FQN resolution: lint mode
     section Planned
         Editing: prepareRename: selectionRange
         Navigation: documentLink
-        Validation: argument-type checker V2: cross-file broadcast
     section Exploratory
         Editing: bound name hover/jump: formatting: documentColor
-        Understanding: lowering preview: specialization explorer: instantiation inlay hints: bound-error fix-its: demangle FQN to source template
+        Understanding: lowering preview: specialization explorer: instantiation inlay hints: demangle FQN to source template
 ```
+
+---
+
+## Recently shipped
+
+Moved out of Planned / Exploratory since the last revision (exercised by the
+test suite; full descriptions to fold into [`README.md`](../README.md#features)):
+
+- **Argument-type checker V2** -- a new `xphp.arg-mismatch` diagnostic extends
+  the constructor check to `$obj->m(...)`, `Cls::m(...)`, and `freeFn(...)`, with
+  conservative "simple-locals" inference for `$var` arguments assigned from a
+  literal / `new` earlier in the same scope.
+- **Cross-file diagnostic broadcast** -- after a workspace pass, diagnostics are
+  re-published for every *other* open document whose results changed
+  (per-URI signature-guarded against edit storms), so a dependent flags / clears
+  without being touched.
+- **Bound-error fix-its** -- a `Generic bound violated` diagnostic now offers
+  "Add `implements \Bound` to `<class>`" (cross-file edit on the concrete class)
+  and "Change type argument to `<Candidate>`" (bound-satisfying workspace types,
+  scalars included).
+- **Proximity-aware FQN resolution** -- the filesystem index covers the whole
+  tree (the `test/fixture` exclusion is gone) and resolves a duplicated FQN to
+  the declaration nearest the requesting file; the bound-check hierarchy is
+  single-sourced the same way.
+- **Constructor usages** -- `new X(...)` is tracked as a reference to
+  `X::__construct` in Find Usages, the code lens, and document-highlight.
+- **Semantic tokens** -- interpolated `"… $x …"` strings split into string +
+  variable spans, and token lengths are UTF-16 code units (non-ASCII-correct).
+- **Document highlight** -- read vs. write kind (declaration / assignment =
+  write, use site = read).
 
 ---
 
@@ -76,28 +105,11 @@ cursor. PhpStorm and VS Code both bind Ctrl+W / Ctrl+Shift+W to it.
 Implementation is a tree walk producing `SelectionRange { range, parent }` per
 anchor.
 
-### Argument-type checker V2 -- methods, statics, free functions (M)
-
-`xphp.ctor-arg-mismatch` (cosntructor arguments mismatch) V1 covers `new C(...)`
-and `new C<T>(...)` only. V2 extends the same diagnostic to `$obj->m(...)`,
-`Cls::m(...)`, and `freeFn(...)`. The hard parts (receiver-type resolution,
-substitution through generics) already work for hover / signature help; the V2
-checker reuses them and emits the same diagnostic shape as V1.
-
 ### `documentLink` -- clickable URLs in comments (S)
 
 `textDocument/documentLink` returns ranges + URIs for URLs and PSR-4-style
 references inside comments / docblocks. Editors underline them and `Cmd+Click`
 opens. Low value compared to the above, listed for completeness.
-
-### Cross-file diagnostic broadcast (M)
-
-Today: editing `Box.xphp` re-publishes `Box.xphp`'s diagnostics only; `Use.xphp`
-(which instantiates `Box<X>`) catches up the next time it's touched. The fix is
-straightforward -- after each diagnostic pass, also re-publish for every file
-whose AST cites the changed file's templates. The remaining work is the right
-batching window so a rapid edit storm doesn't flood every consumer on every
-keystroke.
 
 ---
 
@@ -199,36 +211,6 @@ IntelliJ; Rust's `rustc-demangle` for symbol names.
 **Initial step.** Expose the FQN → template lookup as a server
 method `xphp.demangle`. Prototype consumption in PhpStorm's
 "Analyze stacktrace" dialog as a transformation pass.
-
-### Bound-error fix-its -- "implement missing interface" / "swap type-arg"
-
-**What it'd do.** Today, a `Generic bound violated` diagnostic shows
-the explanation but no quick fix. The fix-it would offer:
-
-1. "Add `implements \Stringable` to `class App\Models\User`" -- one
-   text edit on the supplied concrete type's declaration.
-2. "Swap type-arg to `<Tag>`" -- show the list of project classes
-   that already satisfy the bound, picked via the existing bound-
-   aware completion filter.
-
-**Open questions.**
-
-- For (1), insertion of `implements` is a straightforward parser
-  walk; the leading `\` qualification is the same problem
-  `ClassNameImportContext` solves and can be reused.
-- For (2), candidate ranking: alphabetical, by frequency in the
-  project, or by current import status?
-- Cross-file edits: the type-arg site and the class declaration
-  may live in different files. LSP `WorkspaceEdit` handles this
-  in the protocol, but the UI feedback in PhpStorm for multi-file
-  actions is uneven.
-
-**Prior art.** TypeScript LSP's "Add missing properties" quick
-fix; Rust analyzer's "Implement trait" assist.
-
-**Initial step.** Fix (2) wired end-to-end first (single-file
-edit, reuses existing completion infrastructure). Fix (1) deferred
-until the multi-file edit story is ironed out via the rename loop.
 
 ### Hover / jump on bound names in template headers
 
