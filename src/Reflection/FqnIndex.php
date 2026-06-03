@@ -40,7 +40,11 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
  *
  * Open-doc URIs win over filesystem paths when they collide on the same
  * FQN: a generic class with unsaved edits in the editor reflects the
- * editor state, not the on-disk state.
+ * editor state, not the on-disk state.  Among filesystem declarations of
+ * the SAME FQN (common in monorepo / fixture trees), resolution picks the
+ * one nearest the requesting document -- see {@see selectDecl} /
+ * {@see nearestDecl} -- so duplicate FQNs no longer require excluding whole
+ * subtrees from the walk (the prior `test/fixture` skip is gone).
  *
  * Filesystem walk lifecycle: built lazily on first call, retained for the
  * LSP session.  A file watcher (`workspace/didChangeWatchedFiles`) is the
@@ -56,20 +60,6 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 final class FqnIndex
 {
     private const SKIP_DIRS = ['.git', 'vendor', 'node_modules', 'var', 'build'];
-
-    /**
-     * Path components skipped when their immediate parent matches.  Captures
-     * test-fixture trees that declare classes with the same FQN as real
-     * source -- a common Composer-style layout where running the LSP over
-     * the xphp repo itself surfaced wrong-file GTD targets in prod traces
-     * (Phase 2.2 / 2.3).
-     *
-     * Format: `['parentBasename' => ['skippedChild', ...]]`
-     */
-    private const SKIP_NESTED = [
-        'test' => ['fixture', 'fixtures'],
-        'tests' => ['fixture', 'fixtures'],
-    ];
 
     /**
      * @var array<string, string>|null  FQN -> absolute filesystem path; null until first build.
@@ -1351,12 +1341,6 @@ final class FqnIndex
                 }
                 $name = $file->getFilename();
                 if (in_array($name, self::SKIP_DIRS, true)) {
-                    return false;
-                }
-                $parent = basename($file->getPath());
-                if (isset(self::SKIP_NESTED[$parent])
-                    && in_array($name, self::SKIP_NESTED[$parent], true)
-                ) {
                     return false;
                 }
                 return true;
