@@ -828,6 +828,70 @@ final class FqnIndexTest extends TestCase
         ));
     }
 
+    public function testResolvesDuplicateFqnByProximityToOrigin(): void
+    {
+        // Two packages declare the SAME FQN. Resolution must pick the copy in
+        // the requesting file's own package (longest shared path prefix).
+        $this->writeFile('pkgA/src/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->writeFile('pkgB/src/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $index = $this->index(new PhpactorWorkspace());
+
+        $fromA = $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/pkgA/Demo.xphp');
+        $fromB = $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/pkgB/Demo.xphp');
+
+        self::assertSame($this->root . '/pkgA/src/User.xphp', $fromA);
+        self::assertSame($this->root . '/pkgB/src/User.xphp', $fromB);
+    }
+
+    public function testNullOriginFallsBackToShortestPathTiebreak(): void
+    {
+        // With no requesting context, the deterministic global tiebreak
+        // (shortest path) applies -- preserving pre-proximity behavior.
+        $this->writeFile('a/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->writeFile('deeper/path/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $index = $this->index(new PhpactorWorkspace());
+
+        self::assertSame($this->root . '/a/User.xphp', $index->pathFor('App\\Models\\User'));
+    }
+
+    public function testLocationForFqnReturnsNearestDeclarationsPosition(): void
+    {
+        // The two copies put the class name on different lines; proximity must
+        // return BOTH the near file's URI AND its identifier position.
+        $this->writeFile('pkgA/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->writeFile('pkgB/User.xphp', "<?php\n\n\nnamespace App\\Models;\nclass User {}\n");
+        $index = $this->index(new PhpactorWorkspace());
+
+        $locA = $index->locationForFqn('App\\Models\\User', 'file://' . $this->root . '/pkgA/Use.xphp');
+        self::assertNotNull($locA);
+        self::assertSame('file://' . $this->root . '/pkgA/User.xphp', $locA['uri']);
+        self::assertSame(2, $locA['line']);
+
+        $locB = $index->locationForFqn('App\\Models\\User', 'file://' . $this->root . '/pkgB/Use.xphp');
+        self::assertNotNull($locB);
+        self::assertSame('file://' . $this->root . '/pkgB/User.xphp', $locB['uri']);
+        self::assertSame(4, $locB['line']);
+    }
+
+    public function testOpenDocStillWinsRegardlessOfProximity(): void
+    {
+        // An open buffer beats any on-disk copy, even a nearer one.
+        $this->writeFile('pkgA/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            'file:///elsewhere/User.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App\\Models;\nclass User {}\n",
+        ));
+        $index = $this->index($workspace);
+
+        self::assertSame(
+            'file:///elsewhere/User.xphp',
+            $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/pkgA/Use.xphp'),
+        );
+    }
+
     private function index(PhpactorWorkspace $workspace): FqnIndex
     {
         $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
