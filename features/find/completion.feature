@@ -58,24 +58,31 @@ Feature: Completion
     When I request completion after "Box<" at line 3 of "/Use.xphp"
     Then the completion item "Plastic" inserts "Plastic"
 
-  Scenario: Filter suggestions by the typed prefix
+  Scenario Outline: Filter suggestions by the typed prefix
     Given the file at "/Models.xphp" contains the following lines:
       """
       <?php
       namespace App\Models;
       class Plastic {}
       class Metal {}
+      class Wood {}
       """
     And the file at "/Use.xphp" contains the following lines:
       """
       <?php
       namespace App;
-      $x = new Box<Pla
+      $x = new Box<<prefix>
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<Pla" at line 2 of "/Use.xphp"
-    Then a completion item labeled "Plastic" is offered
-    And no completion item labeled "Metal" is offered
+    When I request completion after "Box<<prefix>" at line 2 of "/Use.xphp"
+    Then a completion item labeled "<match>" is offered
+    And no completion item labeled "<other>" is offered
+
+    Examples:
+      | prefix | match   | other   |
+      | Pla    | Plastic | Metal   |
+      | Met    | Metal   | Plastic |
+      | Woo    | Wood    | Plastic |
 
   Scenario: Filter suggestions by a generic bound
     Given the file at "/Box.xphp" contains the following lines:

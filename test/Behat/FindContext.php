@@ -152,6 +152,19 @@ final class FindContext implements Context
         );
     }
 
+    /**
+     * @Then the resolved item has no documentation
+     */
+    public function theResolvedItemHasNoDocumentation(): void
+    {
+        $item = $this->world->last();
+        $this->world->assert($item instanceof CompletionItem, 'expected a CompletionItem response, got ' . get_debug_type($item));
+        $this->world->assert(
+            $item->documentation === null,
+            'expected no documentation on the resolved item',
+        );
+    }
+
     /** @return list<CompletionItem> */
     private function completionItems(): array
     {
