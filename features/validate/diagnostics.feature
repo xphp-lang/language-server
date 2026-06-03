@@ -20,6 +20,7 @@ Feature: Diagnostics
     And the FQN index has been warmed on initialize
     When I analyze "/Typo.xphp" for diagnostics
     Then a "xphp.undefined-name" diagnostic is reported saying "nul"
+    And the "xphp.undefined-name" diagnostic underlines "nul"
 
   # Deferred: the per-file pull provider treats the analyzed file as canonical,
   # so the duplicate is flagged on the OTHER open file. Surfacing it on the
@@ -61,6 +62,7 @@ Feature: Diagnostics
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
     Then a "xphp.bound" diagnostic is reported saying "Generic bound violated"
+    And the "xphp.bound" diagnostic underlines "Box"
 
   Scenario: Report a constructor argument-type mismatch
     Given the file at "/StringableBox.xphp" contains the following lines:
@@ -98,3 +100,4 @@ Feature: Diagnostics
     And the FQN index has been warmed on initialize
     When I analyze "/Bounds.xphp" for diagnostics
     Then a "xphp.ctor-arg-mismatch" diagnostic is reported
+    And the "xphp.ctor-arg-mismatch" diagnostic underlines "new User()"

@@ -14,6 +14,8 @@ use Behat\Behat\Context\Context;
  */
 final class ValidateContext implements Context
 {
+    private string $analyzedPath = '';
+
     public function __construct(private readonly World $world)
     {
     }
@@ -25,7 +27,32 @@ final class ValidateContext implements Context
     {
         // Pull-mode diagnostics through the real XphpPullDiagnosticsHandler, which
         // returns a `{kind: 'full', items: [...]}` DocumentDiagnosticReport.
+        $this->analyzedPath = $path;
         $this->world->request('textDocument/diagnostic', ['textDocument' => ['uri' => $path]]);
+    }
+
+    /**
+     * @Then the :code diagnostic underlines :text
+     */
+    public function theDiagnosticUnderlines(string $code, string $text): void
+    {
+        $seen = [];
+        foreach ($this->diagnosticItems() as $diagnostic) {
+            if (($diagnostic->code ?? null) !== $code) {
+                continue;
+            }
+            $covered = $this->world->textForRange($this->analyzedPath, $diagnostic->range);
+            $seen[] = $covered;
+            if ($covered === $text) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf(
+            'expected the "%s" diagnostic to underline "%s"; underlined: [%s]',
+            $code,
+            $text,
+            implode(' | ', $seen) ?: '<none>',
+        ));
     }
 
     /**
