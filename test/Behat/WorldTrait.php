@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace XPHP\Lsp\Test\Behat;
 
 use Behat\Gherkin\Node\PyStringNode;
-use PhpParser\ParserFactory;
-use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
+use Phpactor\LanguageServer\Test\LanguageServerTester;
+use Phpactor\LanguageServerProtocol\ClientCapabilities;
 use Phpactor\LanguageServerProtocol\DefinitionParams;
 use Phpactor\LanguageServerProtocol\DocumentHighlightParams;
 use Phpactor\LanguageServerProtocol\DocumentSymbolParams;
 use Phpactor\LanguageServerProtocol\FoldingRangeParams;
 use Phpactor\LanguageServerProtocol\HoverParams;
 use Phpactor\LanguageServerProtocol\ImplementationParams;
+use Phpactor\LanguageServerProtocol\InitializeParams;
 use Phpactor\LanguageServerProtocol\InlayHintParams;
 use Phpactor\LanguageServerProtocol\Location;
 use Phpactor\LanguageServerProtocol\Position;
@@ -20,86 +21,35 @@ use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\ReferenceContext;
 use Phpactor\LanguageServerProtocol\ReferenceParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
-use Phpactor\LanguageServerProtocol\TextDocumentItem;
 use Phpactor\LanguageServerProtocol\TypeDefinitionParams;
-
-use function Amp\Promise\wait;
-use XPHP\Lsp\Analyzer\Analyzer;
-use XPHP\Lsp\Analyzer\ParsedDocumentCache;
-use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
-use XPHP\Lsp\Diagnostics\XphpDiagnosticsProvider;
-use XPHP\Lsp\Handler\WorkspaceSymbols;
-use XPHP\Lsp\Handler\XphpCallHierarchyHandler;
-use XPHP\Lsp\Handler\XphpCodeActionHandler;
-use XPHP\Lsp\Handler\XphpCodeLensHandler;
-use XPHP\Lsp\Handler\XphpCompletionHandler;
-use XPHP\Lsp\Handler\XphpCompletionResolveHandler;
-use XPHP\Lsp\Handler\XphpDefinitionHandler;
-use XPHP\Lsp\Handler\XphpDocumentHighlightHandler;
-use XPHP\Lsp\Handler\XphpDocumentSymbolHandler;
-use XPHP\Lsp\Handler\XphpFoldingRangeHandler;
-use XPHP\Lsp\Handler\XphpHoverHandler;
-use XPHP\Lsp\Handler\XphpImplementationHandler;
-use XPHP\Lsp\Handler\XphpInlayHintHandler;
-use XPHP\Lsp\Handler\XphpReferencesHandler;
-use XPHP\Lsp\Handler\XphpRenameHandler;
-use XPHP\Lsp\Handler\XphpSemanticTokensHandler;
-use XPHP\Lsp\Handler\XphpSignatureHelpHandler;
-use XPHP\Lsp\Handler\XphpTypeDefinitionHandler;
-use XPHP\Lsp\Handler\XphpTypeHierarchyHandler;
-use XPHP\Lsp\Handler\XphpWillRenameFilesHandler;
-use XPHP\Lsp\Handler\XphpWorkspaceSymbolHandler;
+use XPHP\Lsp\LspDispatcherFactory;
 use XPHP\Lsp\PositionMap;
-use XPHP\Lsp\Reflection\FqnIndex;
-use XPHP\Lsp\Reflection\ReflectorFactory;
-use XPHP\Lsp\Resolver\CompletionIndex;
-use XPHP\Lsp\Resolver\CompositeClassLikeLookup;
-use XPHP\Lsp\Resolver\DiagnosticCodeActionProvider;
-use XPHP\Lsp\Resolver\FilesystemClassLikeLookup;
-use XPHP\Lsp\Resolver\GenericParamRegistry;
-use XPHP\Lsp\Resolver\GenericResolver;
-use XPHP\Lsp\Resolver\ImportCodeActionProvider;
-use XPHP\Lsp\Resolver\NamespaceMoveProvider;
-use XPHP\Lsp\Resolver\OptimizeImportsCodeActionProvider;
-use XPHP\Lsp\Resolver\PhpCompletionResolver;
-use XPHP\Lsp\Resolver\PhpDefinitionResolver;
-use XPHP\Lsp\Resolver\PhpHoverResolver;
-use XPHP\Lsp\Resolver\ReferenceFinder;
-use XPHP\Lsp\Resolver\RenameProvider;
-use XPHP\Lsp\Resolver\WorkspaceClassLikeLookup;
-use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 /**
- * Shared in-memory "world" for the Behat acceptance suite: the workspace, the
- * full handler stack, the fixture-loading Given steps, and assertion helpers.
+ * Shared in-memory "world" for the Behat acceptance suite.
  *
- * The handler stack mirrors {@see \XPHP\Lsp\LspDispatcherFactory} with an empty
- * rootPath, so only the open documents resolve -- nothing touches the
- * filesystem. Behat builds a fresh context per scenario, so the workspace is
- * isolated; combined with the absence of shared mutable state the suite is
- * safe to shard across processes.
+ * Scenarios drive the REAL language server end-to-end via phpactor's
+ * {@see LanguageServerTester}: it builds the production {@see LspDispatcherFactory}
+ * with a {@see \Phpactor\LanguageServer\Core\Server\Transmitter\TestMessageTransmitter}
+ * (an in-memory buffer -- no stdio, sockets, or files), runs the real
+ * initialize/ServerCapabilities handshake, and routes JSON-RPC requests through
+ * the full middleware + argument-resolver stack to the real handlers. So the
+ * tests exercise routing, the initialize handshake, textDocument/didOpen sync,
+ * and the actual wiring -- not a re-derived copy of it.
+ *
+ * Each scenario gets a fresh tester (Behat builds a new context per scenario)
+ * with its own transmitter; nothing is shared on disk except the read-only
+ * PHP-stubs cache, so feature files shard across processes conflict-free.
  */
 trait WorldTrait
 {
-    /** @var array<string, string> path -> source (for needle/position lookups) */
+    /** @var array<string, string> uri -> source (for needle/position lookups) */
     private array $sources = [];
 
-    private PhpactorWorkspace $workspace;
-    private bool $handlersBuilt = false;
+    private ?LanguageServerTester $tester = null;
 
-    /** @var array<string, object> handler key -> handler instance */
-    private array $handlers = [];
-
-    private ?XphpDiagnosticsProvider $diagnosticsProvider = null;
-
-    /** Last response from a When step (Location, Hover, list, WorkspaceEdit, ...). */
+    /** Last response result from a When step (Location, Hover, list, WorkspaceEdit, ...). */
     private mixed $lastResponse = null;
-
-    public function __construct()
-    {
-        // Fresh per scenario -- Behat instantiates a new context each time.
-        $this->workspace = new PhpactorWorkspace();
-    }
 
     // ---- shared Given steps ------------------------------------------------
 
@@ -110,7 +60,8 @@ trait WorldTrait
     {
         $source = $lines->getRaw();
         $this->sources[$path] = $source;
-        $this->workspace->open(new TextDocumentItem($path, 'xphp', 1, $source));
+        // Open as a real textDocument/didOpen notification through the server.
+        $this->server()->textDocument()->open($path, $source);
     }
 
     /**
@@ -118,15 +69,41 @@ trait WorldTrait
      */
     public function theFqnIndexHasBeenWarmedOnInitialize(): void
     {
-        $this->buildHandlers();
+        // The index warms on the Initialized event, which fired during the
+        // initialize handshake in server(). With an empty rootPath the
+        // filesystem walk is a no-op; open documents resolve live.
+        $this->server();
+    }
+
+    // ---- server lifecycle + request dispatch -------------------------------
+
+    private function server(): LanguageServerTester
+    {
+        if ($this->tester === null) {
+            $this->tester = new LanguageServerTester(
+                new LspDispatcherFactory(),
+                new InitializeParams(new ClientCapabilities()),
+            );
+            $this->tester->initialize();
+        }
+        return $this->tester;
+    }
+
+    /**
+     * Send a request through the real dispatcher and return the typed result.
+     */
+    private function request(string $method, mixed $params): mixed
+    {
+        $response = $this->server()->requestAndWait($method, $params);
+        if ($response !== null && $response->error !== null) {
+            $this->fail(sprintf('LSP error on %s: %s', $method, $response->error->message ?? 'unknown'));
+        }
+        return $response?->result;
     }
 
     // ---- generic request steps ---------------------------------------------
 
     /**
-     * Position-based requests. Dispatches by LSP method name and stores the
-     * raw response for a Then step to assert.
-     *
      * @When I request :method on :needle at line :line of :path
      */
     public function iRequestOnAtLineOf(string $method, string $needle, int $line, string $path): void
@@ -135,19 +112,17 @@ trait WorldTrait
         $doc = new TextDocumentIdentifier($path);
 
         $this->lastResponse = match ($method) {
-            'textDocument/definition' => wait($this->handler('definition')->definition(new DefinitionParams($doc, $pos))),
-            'textDocument/typeDefinition' => wait($this->handler('typeDefinition')->typeDefinition(new TypeDefinitionParams($doc, $pos))),
-            'textDocument/references' => wait($this->handler('references')->references(new ReferenceParams(new ReferenceContext(true), $doc, $pos))),
-            'textDocument/implementation' => wait($this->handler('implementation')->implementation(new ImplementationParams($doc, $pos))),
-            'textDocument/documentHighlight' => wait($this->handler('documentHighlight')->documentHighlight(new DocumentHighlightParams($doc, $pos))),
-            'textDocument/hover' => wait($this->handler('hover')->hover(new HoverParams($doc, $pos))),
+            'textDocument/definition' => $this->request($method, new DefinitionParams($doc, $pos)),
+            'textDocument/typeDefinition' => $this->request($method, new TypeDefinitionParams($doc, $pos)),
+            'textDocument/references' => $this->request($method, new ReferenceParams(new ReferenceContext(true), $doc, $pos)),
+            'textDocument/implementation' => $this->request($method, new ImplementationParams($doc, $pos)),
+            'textDocument/documentHighlight' => $this->request($method, new DocumentHighlightParams($doc, $pos)),
+            'textDocument/hover' => $this->request($method, new HoverParams($doc, $pos)),
             default => throw new \RuntimeException("Unsupported position method: {$method}"),
         };
     }
 
     /**
-     * Document-level requests (no cursor).
-     *
      * @When I request :method for :path
      */
     public function iRequestForDocument(string $method, string $path): void
@@ -155,9 +130,11 @@ trait WorldTrait
         $doc = new TextDocumentIdentifier($path);
 
         $this->lastResponse = match ($method) {
-            'textDocument/documentSymbol' => wait($this->handler('documentSymbol')->documentSymbol(new DocumentSymbolParams($doc))),
-            'textDocument/foldingRange' => wait($this->handler('folding')->foldingRange(new FoldingRangeParams($doc))),
-            'textDocument/semanticTokens/full' => wait($this->handler('semanticTokens')->semanticTokensFull(['uri' => $path])),
+            'textDocument/documentSymbol' => $this->request($method, new DocumentSymbolParams($doc)),
+            'textDocument/foldingRange' => $this->request($method, new FoldingRangeParams($doc)),
+            // The handler reads an unwrapped {uri} map (no published *Params type),
+            // so send the wire shape and let PassThroughArgumentResolver deliver it.
+            'textDocument/semanticTokens/full' => $this->request($method, ['textDocument' => ['uri' => $path]]),
             default => throw new \RuntimeException("Unsupported document method: {$method}"),
         };
     }
@@ -174,101 +151,7 @@ trait WorldTrait
             new TextDocumentIdentifier($path),
             new Range(new Position(0, 0), new Position(99999, 0)),
         );
-        $this->lastResponse = wait($this->handler('inlay')->inlayHint($params));
-    }
-
-    // ---- world construction ------------------------------------------------
-
-    private function buildHandlers(): void
-    {
-        if ($this->handlersBuilt) {
-            return;
-        }
-
-        $workspace = $this->workspace;
-        $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
-        $cache = new ParsedDocumentCache(new Analyzer($parser));
-        // Empty rootPath: no filesystem walk. Only open documents resolve.
-        $fqnIndex = new FqnIndex($workspace, $cache, $parser, '');
-        $reflector = (new ReflectorFactory(
-            $workspace,
-            $cache,
-            $parser,
-            '',
-            ReflectorFactory::defaultStubPath(),
-            ReflectorFactory::defaultCacheDir(),
-            $fqnIndex,
-        ))->build();
-        $genericParams = new GenericParamRegistry($fqnIndex);
-        $classLikeLookup = new CompositeClassLikeLookup(
-            new WorkspaceClassLikeLookup($workspace, $cache),
-            new FilesystemClassLikeLookup($fqnIndex),
-        );
-        $genericResolver = new GenericResolver($workspace, $cache, $classLikeLookup, $parser, $fqnIndex);
-        $phpDefinitionResolver = new PhpDefinitionResolver($workspace, $parser, $reflector, $cache, $genericResolver);
-        $phpHoverResolver = new PhpHoverResolver($workspace, $parser, $reflector, $genericParams, $genericResolver);
-        $referenceFinder = new ReferenceFinder($workspace, $cache, $fqnIndex, $parser, $reflector, $genericResolver);
-        $workspaceSymbols = new WorkspaceSymbols($workspace, $cache);
-        $completionIndex = new CompletionIndex($workspaceSymbols, ReflectorFactory::defaultStubPath());
-        $phpCompletionResolver = new PhpCompletionResolver(
-            $workspace,
-            $parser,
-            $reflector,
-            $completionIndex,
-            $cache,
-            $genericParams,
-            $genericResolver,
-        );
-        $renameProvider = new RenameProvider($workspace, $referenceFinder, $fqnIndex, false);
-
-        $this->handlers = [
-            'definition' => new XphpDefinitionHandler(
-                $workspace,
-                $cache,
-                $workspaceSymbols,
-                $fqnIndex,
-                $referenceFinder,
-                $phpDefinitionResolver,
-            ),
-            'typeDefinition' => new XphpTypeDefinitionHandler($phpDefinitionResolver),
-            'references' => new XphpReferencesHandler($workspace, $referenceFinder),
-            'implementation' => new XphpImplementationHandler($workspace, $cache, $parser, $fqnIndex),
-            'documentSymbol' => new XphpDocumentSymbolHandler($workspace, $cache),
-            'workspaceSymbol' => new XphpWorkspaceSymbolHandler($fqnIndex),
-            'documentHighlight' => new XphpDocumentHighlightHandler($workspace, $referenceFinder),
-            'callHierarchy' => new XphpCallHierarchyHandler($workspace, $cache, $fqnIndex, $parser),
-            'typeHierarchy' => new XphpTypeHierarchyHandler($workspace, $cache, $parser, $fqnIndex),
-            'rename' => new XphpRenameHandler($workspace, $renameProvider),
-            'codeAction' => new XphpCodeActionHandler(
-                $workspace,
-                new ImportCodeActionProvider($fqnIndex, $cache),
-                new DiagnosticCodeActionProvider(),
-                new OptimizeImportsCodeActionProvider($cache),
-            ),
-            'codeLens' => new XphpCodeLensHandler($workspace, $cache, $referenceFinder),
-            'willRename' => new XphpWillRenameFilesHandler(
-                $workspace,
-                $cache,
-                $parser,
-                $renameProvider,
-                new NamespaceMoveProvider($workspace, $cache, $fqnIndex, $parser),
-            ),
-            'hover' => new XphpHoverHandler($workspace, $cache, $phpHoverResolver),
-            'signatureHelp' => new XphpSignatureHelpHandler($workspace, $cache, $parser, $reflector),
-            'inlay' => new XphpInlayHintHandler($workspace, $cache, $genericResolver),
-            'folding' => new XphpFoldingRangeHandler($workspace, $cache),
-            'semanticTokens' => new XphpSemanticTokensHandler($workspace, $cache),
-            'completion' => new XphpCompletionHandler($workspace, $workspaceSymbols, $phpCompletionResolver, $fqnIndex, $reflector),
-            'completionResolve' => new XphpCompletionResolveHandler($reflector),
-        ];
-        $this->diagnosticsProvider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
-        $this->handlersBuilt = true;
-    }
-
-    private function handler(string $key): object
-    {
-        $this->buildHandlers();
-        return $this->handlers[$key] ?? throw new \RuntimeException("no handler: {$key}");
+        $this->lastResponse = $this->request($method, $params);
     }
 
     // ---- position / fixture helpers ---------------------------------------
@@ -335,7 +218,6 @@ trait WorldTrait
     }
 
     /**
-     * @param list<Location> $locations
      * @return list<string> uris
      */
     private function locationUris(mixed $locations): array

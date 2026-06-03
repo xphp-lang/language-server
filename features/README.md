@@ -1,9 +1,13 @@
 # Behavior specifications (Gherkin)
 
 Executable acceptance specs for the xphp language server, organized by theme.
-Each scenario drives the real LSP handlers against a fully **in-memory**
-workspace (every fixture is opened as a `TextDocumentItem`; nothing is written
-to disk), so the suite is isolated and parallel-safe.
+Each scenario drives the **real language server end-to-end** — phpactor's
+`LanguageServerTester` builds the production `LspDispatcherFactory`, runs the
+initialize/ServerCapabilities handshake, and routes real JSON-RPC requests
+through the full middleware stack to the handlers. Everything is **in-memory**
+(fixtures are opened via `textDocument/didOpen`; the transmitter is an array
+buffer — no stdio, sockets, or files), so the suite is isolated and
+parallel-safe.
 
 ```
 features/
@@ -24,9 +28,9 @@ leading-slash URIs (`/Foo.xphp`) for handlers that go through worse-reflection.
 
 The step definitions live in `test/Behat/`, split to mirror the themes:
 
-- `WorldTrait` — the shared world: the workspace, the full handler stack
-  (mirrors `LspDispatcherFactory` with an empty rootPath), the fixture Givens,
-  and the position/assertion helpers.
+- `WorldTrait` — the shared world: the `LanguageServerTester` (real dispatcher),
+  the fixture Givens (which open documents through the server), the generic
+  request dispatch, and the position/assertion helpers.
 - `NavigateSteps`, `EditSteps`, `UnderstandSteps`, `ValidateSteps`, `FindSteps`
   — the When/Then steps for each theme.
 - `FeatureContext` — a thin aggregator that composes the traits.

@@ -14,8 +14,6 @@ use Phpactor\LanguageServerProtocol\SignatureHelpParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
 
-use function Amp\Promise\wait;
-
 /**
  * Steps for the Understand theme: hover, signature help, inlay hints, folding
  * ranges, and semantic tokens.
@@ -30,7 +28,7 @@ trait UnderstandSteps
         $start = $this->positionOfNeedle($path, $line, $needle);
         $cursor = new Position($start->line, $start->character + strlen($needle));
         $params = new SignatureHelpParams(new TextDocumentIdentifier($path), $cursor);
-        $this->lastResponse = wait($this->handler('signatureHelp')->signatureHelp($params));
+        $this->lastResponse = $this->request('textDocument/signatureHelp', $params);
     }
 
     /**

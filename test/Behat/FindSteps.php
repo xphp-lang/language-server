@@ -12,8 +12,6 @@ use Phpactor\LanguageServerProtocol\MarkupContent;
 use Phpactor\LanguageServerProtocol\Position;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 
-use function Amp\Promise\wait;
-
 /**
  * Steps for the Find theme: completion and completionItem/resolve.
  */
@@ -27,7 +25,7 @@ trait FindSteps
         $start = $this->positionOfNeedle($path, $line, $needle);
         $cursor = new Position($start->line, $start->character + strlen($needle));
         $params = new CompletionParams(new TextDocumentIdentifier($path), $cursor);
-        $this->lastResponse = wait($this->handler('completion')->complete($params));
+        $this->lastResponse = $this->request('textDocument/completion', $params);
     }
 
     /**
@@ -82,7 +80,7 @@ trait FindSteps
             kind: CompletionItemKind::CLASS_,
             data: ['kind' => 'class', 'fqn' => $fqn],
         );
-        $this->lastResponse = wait($this->handler('completionResolve')->resolve($item));
+        $this->lastResponse = $this->request('completionItem/resolve', $item);
     }
 
     /**

@@ -10,8 +10,6 @@ use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use Phpactor\LanguageServerProtocol\TextDocumentPositionParams;
 use Phpactor\LanguageServerProtocol\WorkspaceSymbolParams;
 
-use function Amp\Promise\wait;
-
 /**
  * Steps for the Navigate theme: definition, type-definition, references,
  * implementation, document/workspace symbols, document highlight, and the call
@@ -30,9 +28,9 @@ trait NavigateSteps
     public function iPrepareCallHierarchyOnAtLineOf(string $needle, int $line, string $path): void
     {
         $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->positionOfNeedle($path, $line, $needle));
-        $items = wait($this->handler('callHierarchy')->prepare($params));
+        $items = $this->request('textDocument/prepareCallHierarchy', $params);
         $this->lastResponse = $items;
-        $this->hierarchyItem = $this->itemDict($items[0] ?? null, $path);
+        $this->hierarchyItem = $this->itemDict(is_array($items) ? ($items[0] ?? null) : null, $path);
     }
 
     /**
@@ -40,7 +38,7 @@ trait NavigateSteps
      */
     public function iRequestIncomingCalls(): void
     {
-        $this->lastResponse = wait($this->handler('callHierarchy')->incomingCalls($this->hierarchyItem));
+        $this->lastResponse = $this->request('callHierarchy/incomingCalls', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -48,7 +46,7 @@ trait NavigateSteps
      */
     public function iRequestOutgoingCalls(): void
     {
-        $this->lastResponse = wait($this->handler('callHierarchy')->outgoingCalls($this->hierarchyItem));
+        $this->lastResponse = $this->request('callHierarchy/outgoingCalls', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -155,9 +153,9 @@ trait NavigateSteps
     public function iPrepareTypeHierarchyOnAtLineOf(string $needle, int $line, string $path): void
     {
         $params = new TextDocumentPositionParams(new TextDocumentIdentifier($path), $this->positionOfNeedle($path, $line, $needle));
-        $items = wait($this->handler('typeHierarchy')->prepare($params));
+        $items = $this->request('textDocument/prepareTypeHierarchy', $params);
         $this->lastResponse = $items;
-        $this->hierarchyItem = $this->itemDict($items[0] ?? null, $path);
+        $this->hierarchyItem = $this->itemDict(is_array($items) ? ($items[0] ?? null) : null, $path);
     }
 
     /**
@@ -165,7 +163,7 @@ trait NavigateSteps
      */
     public function iRequestSupertypes(): void
     {
-        $this->lastResponse = wait($this->handler('typeHierarchy')->supertypes($this->hierarchyItem));
+        $this->lastResponse = $this->request('typeHierarchy/supertypes', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -173,7 +171,7 @@ trait NavigateSteps
      */
     public function iRequestSubtypes(): void
     {
-        $this->lastResponse = wait($this->handler('typeHierarchy')->subtypes($this->hierarchyItem));
+        $this->lastResponse = $this->request('typeHierarchy/subtypes', ['item' => $this->hierarchyItem]);
     }
 
     /**
@@ -235,7 +233,7 @@ trait NavigateSteps
      */
     public function iSearchWorkspaceSymbolsFor(string $query): void
     {
-        $this->lastResponse = wait($this->handler('workspaceSymbol')->symbol(new WorkspaceSymbolParams($query)));
+        $this->lastResponse = $this->request('workspace/symbol', new WorkspaceSymbolParams($query));
     }
 
     /**

@@ -17,9 +17,9 @@ trait ValidateSteps
      */
     public function iAnalyzeForDiagnostics(string $path): void
     {
-        $this->buildHandlers();
-        $item = $this->workspace->get($path);
-        $this->lastResponse = $this->diagnosticsProvider->analyzeSync($item);
+        // Pull-mode diagnostics through the real XphpPullDiagnosticsHandler, which
+        // returns a `{kind: 'full', items: [...]}` DocumentDiagnosticReport.
+        $this->lastResponse = $this->request('textDocument/diagnostic', ['textDocument' => ['uri' => $path]]);
     }
 
     /**
@@ -40,7 +40,7 @@ trait ValidateSteps
     public function aDiagnosticIsReportedSaying(string $code, string $text): void
     {
         $messages = [];
-        foreach ((array) $this->lastResponse as $diagnostic) {
+        foreach ($this->diagnosticItems() as $diagnostic) {
             if (($diagnostic->code ?? null) !== $code) {
                 continue;
             }
@@ -69,13 +69,27 @@ trait ValidateSteps
     /** @return list<string> */
     private function diagnosticCodes(): array
     {
-        $this->assert(is_array($this->lastResponse), 'expected a diagnostics list response');
         $codes = [];
-        foreach ($this->lastResponse as $diagnostic) {
+        foreach ($this->diagnosticItems() as $diagnostic) {
             if (is_object($diagnostic) && isset($diagnostic->code)) {
                 $codes[] = (string) $diagnostic->code;
             }
         }
         return $codes;
+    }
+
+    /**
+     * Extract the diagnostic list from the pull-mode report
+     * (`{kind: 'full', items: [...]}`).
+     *
+     * @return list<object>
+     */
+    private function diagnosticItems(): array
+    {
+        $report = $this->lastResponse;
+        $this->assert(is_array($report), 'expected a diagnostic report, got ' . get_debug_type($report));
+        $items = $report['items'] ?? $report;
+        $this->assert(is_array($items), 'expected the report to carry an items list');
+        return array_values($items);
     }
 }

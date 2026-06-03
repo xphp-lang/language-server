@@ -18,8 +18,6 @@ use Phpactor\LanguageServerProtocol\RenameParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use XPHP\Lsp\Analyzer\DiagnosticCode;
 
-use function Amp\Promise\wait;
-
 /**
  * Steps for the Edit theme: rename, code actions, code lens, and
  * workspace/willRenameFiles.
@@ -38,7 +36,7 @@ trait EditSteps
             $this->positionOfNeedle($path, $line, $needle),
             $newName,
         );
-        $this->lastResponse = wait($this->handler('rename')->rename($params));
+        $this->lastResponse = $this->request('textDocument/rename', $params);
     }
 
     /**
@@ -98,7 +96,7 @@ trait EditSteps
     public function iRenameTheFileTo(string $oldUri, string $newUri): void
     {
         $params = new RenameFilesParams([new FileRename($oldUri, $newUri)]);
-        $this->lastResponse = wait($this->handler('willRename')->willRenameFiles($params));
+        $this->lastResponse = $this->request('workspace/willRenameFiles', $params);
     }
 
     // ---- code actions ------------------------------------------------------
@@ -114,7 +112,7 @@ trait EditSteps
             new Range($pos, $pos),
             new CodeActionContext([]),
         );
-        $this->lastResponse = wait($this->handler('codeAction')->codeAction($params));
+        $this->lastResponse = $this->request('textDocument/codeAction', $params);
     }
 
     /**
@@ -131,7 +129,7 @@ trait EditSteps
             $range,
             new CodeActionContext([$diagnostic]),
         );
-        $this->lastResponse = wait($this->handler('codeAction')->codeAction($params));
+        $this->lastResponse = $this->request('textDocument/codeAction', $params);
     }
 
     /**
@@ -159,7 +157,7 @@ trait EditSteps
     public function iRequestCodeLensesFor(string $path): void
     {
         $params = new CodeLensParams(new TextDocumentIdentifier($path));
-        $this->lastResponse = wait($this->handler('codeLens')->codeLens($params));
+        $this->lastResponse = $this->request('textDocument/codeLens', $params);
     }
 
     /**
@@ -169,7 +167,7 @@ trait EditSteps
     {
         $lenses = $this->lastResponse;
         $this->assert(is_array($lenses) && isset($lenses[0]) && $lenses[0] instanceof CodeLens, 'expected at least one code lens to resolve');
-        $this->lastResponse = wait($this->handler('codeLens')->resolve($lenses[0]));
+        $this->lastResponse = $this->request('codeLens/resolve', $lenses[0]);
     }
 
     /**
