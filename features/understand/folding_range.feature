@@ -22,7 +22,7 @@ Feature: Folding ranges
     And the FQN index has been warmed on initialize
     When I request "textDocument/foldingRange" for "/Box.xphp"
     Then the response contains 3 folding ranges
-    And a folding range spans lines 2 to 12
+    And a folding range of kind "region" spans 2 to 12
 
   Scenario: Single-line declarations are not folded
     Given the file at "/One.xphp" contains the following lines:

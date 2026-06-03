@@ -53,6 +53,22 @@ final class UnderstandContext implements Context
     }
 
     /**
+     * @Then the active signature label is :label
+     */
+    public function theActiveSignatureLabelIs(string $label): void
+    {
+        $help = $this->world->last();
+        $this->world->assert($help instanceof SignatureHelp, 'expected a SignatureHelp response, got ' . get_debug_type($help));
+        $index = $help->activeSignature ?? 0;
+        $signature = $help->signatures[$index] ?? $help->signatures[0] ?? null;
+        $this->world->assert($signature !== null, 'expected at least one signature');
+        $this->world->assert(
+            $signature->label === $label,
+            sprintf('expected active signature label "%s", got "%s"', $label, $signature->label),
+        );
+    }
+
+    /**
      * @Then the active parameter is :index
      */
     public function theActiveParameterIs(int $index): void
@@ -132,6 +148,36 @@ final class UnderstandContext implements Context
     }
 
     /**
+     * @Then a folding range of kind :kind spans :start to :end
+     */
+    public function aFoldingRangeOfKindSpans(string $kind, int $start, int $end): void
+    {
+        $seen = [];
+        foreach ((array) $this->world->last() as $range) {
+            $seen[] = sprintf('%s %d-%d', (string) ($range->kind ?? '?'), $range->startLine, $range->endLine);
+            if (($range->kind ?? null) === $kind && $range->startLine === $start && $range->endLine === $end) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected a %s folding range %d-%d; got: [%s]', $kind, $start, $end, implode(', ', $seen)));
+    }
+
+    /**
+     * @Then a :type token covers :text in :path
+     */
+    public function aTokenCoversIn(string $type, string $text, string $path): void
+    {
+        $tokens = $this->world->last();
+        $this->world->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
+        foreach ($this->world->decodeSemanticTokens($tokens, $path) as $token) {
+            if ($token['type'] === $type && $token['text'] === $text) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected a %s token covering "%s" in %s', $type, $text, $path));
+    }
+
+    /**
      * @Then there is no hover
      */
     public function thereIsNoHover(): void
@@ -140,6 +186,52 @@ final class UnderstandContext implements Context
             $this->world->last() === null,
             'expected no hover, got ' . get_debug_type($this->world->last()),
         );
+    }
+
+    /**
+     * @Then exactly :count inlay hint is rendered
+     * @Then exactly :count inlay hints are rendered
+     */
+    public function exactlyInlayHintsAreRendered(int $count): void
+    {
+        $hints = $this->world->last();
+        $this->world->assert(is_array($hints), 'expected an inlay-hint list response');
+        $actual = count(array_filter($hints, static fn ($h): bool => $h instanceof InlayHint));
+        $this->world->assert(
+            $actual === $count,
+            sprintf('expected exactly %d inlay hints, got %d', $count, $actual),
+        );
+    }
+
+    /**
+     * @Then an inlay hint :label is rendered after :var on line :line of :path
+     */
+    public function anInlayHintIsRenderedAfterOnLineOf(string $label, string $var, int $line, string $path): void
+    {
+        $expectedChar = $this->world->positionOfNeedle($path, $line, $var)->character + strlen($var);
+        $hints = $this->world->last();
+        $this->world->assert(is_array($hints), 'expected an inlay-hint list response');
+
+        $seen = [];
+        foreach ($hints as $hint) {
+            if (!$hint instanceof InlayHint) {
+                continue;
+            }
+            $hintLabel = is_string($hint->label) ? $hint->label : '';
+            $seen[] = sprintf('%s@L%d:%d', $hintLabel, $hint->position->line, $hint->position->character);
+            if ($hintLabel === $label && $hint->position->line === $line && $hint->position->character === $expectedChar) {
+                return;
+            }
+        }
+
+        $this->world->fail(sprintf(
+            'no inlay hint "%s" just after "%s" (line %d, char %d); got: [%s]',
+            $label,
+            $var,
+            $line,
+            $expectedChar,
+            implode(', ', $seen) ?: '<none>',
+        ));
     }
 
     /**

@@ -17,7 +17,7 @@ Feature: Signature help
 
   Scenario: Show the signature and the first active parameter
     When I request signature help after "greet(" at line 1 of "/Use.xphp"
-    Then the active signature label contains "greet(string $name, int $count)"
+    Then the active signature label is "greet(string $name, int $count)"
     And the active parameter is 0
 
   Scenario: Advance the active parameter past a comma

@@ -30,4 +30,5 @@ Feature: Inlay hints
 
   Scenario: Hint the substituted return type of a generic method call
     When I request "textDocument/inlayHint" for the visible range of "/Use.xphp"
-    Then an inlay hint ": ?App\Models\User" is rendered after "$first" on line 4
+    Then exactly 1 inlay hint is rendered
+    And an inlay hint ": ?App\Models\User" is rendered after "$first" on line 4 of "/Use.xphp"

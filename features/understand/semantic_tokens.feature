@@ -14,4 +14,4 @@ Feature: Semantic tokens
     And the FQN index has been warmed on initialize
     When I request "textDocument/semanticTokens/full" for "/box.xphp"
     Then the semantic tokens are non-empty
-    And the semantic tokens include a "typeParameter" token
+    And a "typeParameter" token covers "T" in "/box.xphp"
