@@ -15,11 +15,15 @@ Feature: Signature help
       """
     And the FQN index has been warmed on initialize
 
-  Scenario: Show the signature and the first active parameter
+  Scenario: Show the full signature label
     When I request signature help after "greet(" at line 1 of "/Use.xphp"
     Then the active signature label is "greet(string $name, int $count)"
-    And the active parameter is 0
 
-  Scenario: Advance the active parameter past a comma
-    When I request signature help after "greet('a', " at line 1 of "/Use.xphp"
-    Then the active parameter is 1
+  Scenario Outline: The active parameter follows the cursor
+    When I request signature help after "<after>" at line 1 of "/Use.xphp"
+    Then the active parameter is <param>
+
+    Examples:
+      | after      | param |
+      | greet(     | 0     |
+      | greet('a', | 1     |
