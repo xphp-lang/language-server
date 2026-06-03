@@ -38,7 +38,7 @@ Feature: Call hierarchy
   Scenario: Find incoming calls to a method
     When I prepare call hierarchy on "save" at line 3 of "/Repository.xphp"
     And I request incoming calls
-    Then an incoming call comes from "persist"
+    Then an incoming call comes from "App\persist"
 
   Scenario: Find outgoing calls from a method body
     When I prepare call hierarchy on "run" at line 3 of "/Service.xphp"

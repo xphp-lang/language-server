@@ -27,6 +27,7 @@ Feature: Find references
   Scenario: List the declaration, the import, and both usages
     When I request "textDocument/references" on "User" at line 2 of "/User.xphp"
     Then the response contains 4 locations
-    And the response includes a location in "/User.xphp"
-    And the response includes a location in "/Use1.xphp"
-    And the response includes a location in "/Use2.xphp"
+    And a reference in "/User.xphp" covers "User"
+    And a reference in "/Use1.xphp" covers "App\User"
+    And a reference in "/Use1.xphp" covers "User"
+    And a reference in "/Use2.xphp" covers "\App\User"

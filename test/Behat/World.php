@@ -9,6 +9,8 @@ use Phpactor\LanguageServerProtocol\ClientCapabilities;
 use Phpactor\LanguageServerProtocol\InitializeParams;
 use Phpactor\LanguageServerProtocol\Location;
 use Phpactor\LanguageServerProtocol\Position;
+use Phpactor\LanguageServerProtocol\SemanticTokens;
+use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
 use XPHP\Lsp\LspDispatcherFactory;
 use XPHP\Lsp\PositionMap;
 
@@ -163,17 +165,59 @@ final class World
         return $uris;
     }
 
-    /** Slice the target document by an LSP range and return the covered text. */
-    public function textInRange(Location $location): string
+    /** Slice the fixture identified by $uri by an LSP range; return covered text. */
+    public function textForRange(string $uri, object $range): string
     {
-        $target = $this->sources[$this->stripFileScheme($location->uri)]
-            ?? $this->sources[$location->uri]
-            ?? throw new \RuntimeException("target doc not in fixtures: {$location->uri}");
+        $target = $this->sourceFor($uri);
         $map = new PositionMap($target);
-        $start = $map->positionToOffset($location->range->start->line, $location->range->start->character);
-        $end = $map->positionToOffset($location->range->end->line, $location->range->end->character);
+        $start = $map->positionToOffset($range->start->line, $range->start->character);
+        $end = $map->positionToOffset($range->end->line, $range->end->character);
 
         return substr($target, $start, max(0, $end - $start));
+    }
+
+    /** Slice the target document by a Location's range and return the covered text. */
+    public function textInRange(Location $location): string
+    {
+        return $this->textForRange($location->uri, $location->range);
+    }
+
+    /**
+     * Decode the delta-encoded semantic-token stream into absolute tokens,
+     * slicing the source for each token's text and mapping its type index.
+     *
+     * @return list<array{line:int, char:int, text:string, type:string}>
+     */
+    public function decodeSemanticTokens(SemanticTokens $tokens, string $uri): array
+    {
+        $lines = explode("\n", $this->sourceFor($uri));
+        $data = array_values($tokens->data);
+        $out = [];
+        $line = 0;
+        $char = 0;
+        for ($i = 0; $i + 5 <= count($data); $i += 5) {
+            [$deltaLine, $deltaChar, $length, $typeIndex] = array_slice($data, $i, 4);
+            if ($deltaLine > 0) {
+                $line += $deltaLine;
+                $char = $deltaChar;
+            } else {
+                $char += $deltaChar;
+            }
+            $out[] = [
+                'line' => $line,
+                'char' => $char,
+                'text' => substr($lines[$line] ?? '', $char, $length),
+                'type' => TokenLegend::TOKEN_TYPES[$typeIndex] ?? (string) $typeIndex,
+            ];
+        }
+        return $out;
+    }
+
+    private function sourceFor(string $uri): string
+    {
+        return $this->sources[$this->stripFileScheme($uri)]
+            ?? $this->sources[$uri]
+            ?? throw new \RuntimeException("doc not in fixtures: {$uri}");
     }
 
     public function stripFileScheme(string $uri): string

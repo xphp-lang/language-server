@@ -16,3 +16,4 @@ Feature: Document highlight
   Scenario: Highlight the declaration and both usages in the current file
     When I request "textDocument/documentHighlight" on "User" at line 2 of "/Use.xphp"
     Then the response contains 3 highlights
+    And each highlight covers "User" in "/Use.xphp"

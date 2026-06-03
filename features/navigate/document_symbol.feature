@@ -19,8 +19,10 @@ Feature: Document symbol outline
 
   Scenario: Outline a class with its members
     When I request "textDocument/documentSymbol" for "/User.xphp"
-    Then the document outline contains a class named "User"
-    And the document outline contains a constant named "ROLE"
-    And the document outline contains a property named "$name"
-    And the document outline contains a constructor named "__construct"
-    And the document outline contains a method named "shout"
+    Then the outline contains a class "User" with 5 members
+    And the class "User" has a constant member named "ROLE"
+    And the class "User" has a property member named "$name"
+    And the class "User" has a property member named "$age"
+    And the class "User" has a constructor member named "__construct"
+    And the class "User" has a method member named "shout"
+    And the "User" selection range in "/User.xphp" covers "User"

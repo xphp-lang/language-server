@@ -28,3 +28,5 @@ Feature: Workspace symbol search
     Then the workspace symbols include "Tag"
     And the workspace symbols exclude "Pair"
     And the workspace symbols exclude "Repository"
+    And there is exactly 1 workspace symbol
+    And the workspace symbol "Tag" has kind class

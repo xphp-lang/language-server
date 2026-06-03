@@ -26,5 +26,5 @@ Feature: Go to implementation
   Scenario: List the implementers of an interface
     When I request "textDocument/implementation" on "Speaker" at line 2 of "/Speaker.xphp"
     Then the response contains 2 locations
-    And the response includes a location in "/Dog.xphp"
-    And the response includes a location in "/Cat.xphp"
+    And a reference in "/Dog.xphp" covers "Dog"
+    And a reference in "/Cat.xphp" covers "Cat"

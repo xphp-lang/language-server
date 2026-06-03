@@ -37,8 +37,10 @@ Feature: Type hierarchy
     When I prepare type hierarchy on "Dog" at line 2 of "/Dog.xphp"
     And I request supertypes
     Then a supertype is named "Animal"
+    And a supertype "Animal" has fqn "App\Animal"
 
   Scenario: Walk subtypes to the implementers of an interface
     When I prepare type hierarchy on "Speaker" at line 2 of "/Speaker.xphp"
     And I request subtypes
     Then a subtype is named "Cat"
+    And a subtype "Cat" has fqn "App\Cat"

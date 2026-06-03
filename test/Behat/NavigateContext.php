@@ -6,6 +6,7 @@ namespace XPHP\Lsp\Test\Behat;
 
 use Behat\Behat\Context\Context;
 use Phpactor\LanguageServerProtocol\DocumentSymbol;
+use Phpactor\LanguageServerProtocol\Location;
 use Phpactor\LanguageServerProtocol\SymbolKind;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use Phpactor\LanguageServerProtocol\TextDocumentPositionParams;
@@ -72,7 +73,7 @@ final class NavigateContext implements Context
     {
         $names = $this->hierarchyNames($this->world->last(), 'from');
         $this->world->assert(
-            $this->anyContains($names, $name),
+            in_array($name, $names, true),
             sprintf('expected an incoming call from "%s"; got: [%s]', $name, implode(', ', $names)),
         );
     }
@@ -84,22 +85,9 @@ final class NavigateContext implements Context
     {
         $names = $this->hierarchyNames($this->world->last(), 'to');
         $this->world->assert(
-            $this->anyContains($names, $name),
+            in_array($name, $names, true),
             sprintf('expected an outgoing call to "%s"; got: [%s]', $name, implode(', ', $names)),
         );
-    }
-
-    /**
-     * @param array<string> $haystacks
-     */
-    private function anyContains(array $haystacks, string $needle): bool
-    {
-        foreach ($haystacks as $h) {
-            if (str_contains($h, $needle)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -199,6 +187,161 @@ final class NavigateContext implements Context
             in_array($name, $names, true),
             sprintf('expected a %s named "%s"; got: [%s]', $label, $name, implode(', ', $names)),
         );
+    }
+
+    /**
+     * @Then a supertype :name has fqn :fqn
+     * @Then a subtype :name has fqn :fqn
+     */
+    public function aRelatedTypeHasFqn(string $name, string $fqn): void
+    {
+        foreach ((array) $this->world->last() as $entry) {
+            $entryName = is_array($entry) ? ($entry['name'] ?? null) : ($entry->name ?? null);
+            if ($entryName !== $name) {
+                continue;
+            }
+            $entryFqn = is_array($entry) ? ($entry['data']['fqn'] ?? null) : ($entry->data['fqn'] ?? null);
+            $this->world->assert(
+                $entryFqn === $fqn,
+                sprintf('expected %s to have fqn "%s", got "%s"', $name, $fqn, (string) $entryFqn),
+            );
+            return;
+        }
+        $this->world->fail(sprintf('no related type named "%s"', $name));
+    }
+
+    // ---- covered-text assertions (references / highlights / outline) --------
+
+    /**
+     * @Then a reference in :path covers :text
+     */
+    public function aReferenceInCovers(string $path, string $text): void
+    {
+        $seen = [];
+        foreach ((array) $this->world->last() as $loc) {
+            if (!$loc instanceof Location || !$this->matchesPath($loc->uri, $path)) {
+                continue;
+            }
+            $covered = $this->world->textForRange($loc->uri, $loc->range);
+            $seen[] = $covered;
+            if ($covered === $text) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected a reference in "%s" covering "%s"; got: [%s]', $path, $text, implode(', ', $seen)));
+    }
+
+    /**
+     * @Then each highlight covers :text in :path
+     */
+    public function eachHighlightCoversIn(string $text, string $path): void
+    {
+        $highlights = $this->world->last();
+        $this->world->assert(is_array($highlights) && $highlights !== [], 'expected a non-empty highlight list');
+        foreach ($highlights as $highlight) {
+            $covered = $this->world->textForRange($path, $highlight->range);
+            $this->world->assert(
+                $covered === $text,
+                sprintf('expected each highlight to cover "%s", got "%s"', $text, $covered),
+            );
+        }
+    }
+
+    private function matchesPath(string $uri, string $path): bool
+    {
+        return $uri === $path
+            || $this->world->stripFileScheme($uri) === $path
+            || str_ends_with($uri, '/' . $path)
+            || str_ends_with($this->world->stripFileScheme($uri), '/' . $path);
+    }
+
+    // ---- document-symbol structure -----------------------------------------
+
+    /**
+     * @Then the outline contains a class :name with :count members
+     */
+    public function theOutlineContainsAClassWithMembers(string $name, int $count): void
+    {
+        $class = $this->topLevelSymbol($name, SymbolKind::CLASS_);
+        $this->world->assert($class !== null, sprintf('expected a top-level class named "%s"', $name));
+        $children = is_array($class->children) ? $class->children : [];
+        $this->world->assert(
+            count($children) === $count,
+            sprintf('expected class "%s" to have %d members, got %d', $name, $count, count($children)),
+        );
+    }
+
+    /**
+     * @Then the class :name has a :kind member named :member
+     */
+    public function theClassHasAMemberNamed(string $name, string $kind, string $member): void
+    {
+        $class = $this->topLevelSymbol($name, SymbolKind::CLASS_);
+        $this->world->assert($class !== null, sprintf('expected a top-level class named "%s"', $name));
+        $wantKind = $this->symbolKind($kind);
+        foreach (is_array($class->children) ? $class->children : [] as $child) {
+            if ($child instanceof DocumentSymbol && $child->name === $member && $child->kind === $wantKind) {
+                return;
+            }
+        }
+        $this->world->fail(sprintf('expected class "%s" to have a %s member named "%s"', $name, $kind, $member));
+    }
+
+    /**
+     * @Then the :name selection range in :path covers :text
+     */
+    public function theSelectionRangeInCovers(string $name, string $path, string $text): void
+    {
+        $symbol = $this->topLevelSymbol($name, SymbolKind::CLASS_);
+        $this->world->assert($symbol !== null, sprintf('expected a top-level class named "%s"', $name));
+        $covered = $this->world->textForRange($path, $symbol->selectionRange);
+        $this->world->assert(
+            $covered === $text,
+            sprintf('expected "%s" selection range to cover "%s", got "%s"', $name, $text, $covered),
+        );
+    }
+
+    private function topLevelSymbol(string $name, int $kind): ?DocumentSymbol
+    {
+        foreach ((array) $this->world->last() as $symbol) {
+            if ($symbol instanceof DocumentSymbol && $symbol->name === $name && $symbol->kind === $kind) {
+                return $symbol;
+            }
+        }
+        return null;
+    }
+
+    // ---- workspace-symbol exactness ----------------------------------------
+
+    /**
+     * @Then there is exactly :count workspace symbol
+     * @Then there are exactly :count workspace symbols
+     */
+    public function thereAreExactlyWorkspaceSymbols(int $count): void
+    {
+        $names = $this->symbolNames();
+        $this->world->assert(
+            count($names) === $count,
+            sprintf('expected exactly %d workspace symbols, got %d: [%s]', $count, count($names), implode(', ', $names)),
+        );
+    }
+
+    /**
+     * @Then the workspace symbol :name has kind :kind
+     */
+    public function theWorkspaceSymbolHasKind(string $name, string $kind): void
+    {
+        $wantKind = $this->symbolKind($kind);
+        foreach ((array) $this->world->last() as $symbol) {
+            if (is_object($symbol) && ($symbol->name ?? null) === $name) {
+                $this->world->assert(
+                    ($symbol->kind ?? null) === $wantKind,
+                    sprintf('expected workspace symbol "%s" to have kind %s', $name, $kind),
+                );
+                return;
+            }
+        }
+        $this->world->fail(sprintf('no workspace symbol named "%s"', $name));
     }
 
     // ---- definition / references / highlight / symbols ---------------------
