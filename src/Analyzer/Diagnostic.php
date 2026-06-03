@@ -15,9 +15,19 @@ namespace XPHP\Lsp\Analyzer;
  * front so editors / users can pattern-match by code (e.g. "downgrade
  * xphp.parse.internal to info"). The previous freeform `string $code = ''`
  * encouraged inconsistency between catch sites.
+ *
+ * `$data` is an optional structured payload carried through to the LSP
+ * `Diagnostic.data` field. Clients round-trip it back on
+ * `textDocument/codeAction`, so a code-action provider can build a quick-fix
+ * from facts the analyzer already computed (e.g. the bound-violation fix-its
+ * read the offending type-arg range + candidate types from here) without
+ * re-deriving them from the message text.
  */
 final readonly class Diagnostic
 {
+    /**
+     * @param array<string, mixed>|null $data
+     */
     public function __construct(
         public int $startLine,
         public int $startCharacter,
@@ -26,6 +36,7 @@ final readonly class Diagnostic
         public string $message,
         public DiagnosticCode $code,
         public DiagnosticSeverity $severity = DiagnosticSeverity::Error,
+        public ?array $data = null,
     ) {
     }
 }

@@ -170,6 +170,36 @@ final class EditContext implements Context
     }
 
     /**
+     * Pull the real diagnostics for a file, then request code actions with the
+     * matching diagnostic in context -- so its structured `data` payload flows
+     * through to the providers exactly as a client would round-trip it.
+     *
+     * @When I request code actions for the :code diagnostic in :path
+     */
+    public function iRequestCodeActionsForTheDiagnosticIn(string $code, string $path): void
+    {
+        $this->world->request('textDocument/diagnostic', ['textDocument' => ['uri' => $path]]);
+        $report = $this->world->last();
+        $items = is_array($report) ? ($report['items'] ?? $report) : [];
+
+        $match = null;
+        foreach ((array) $items as $diagnostic) {
+            if (is_object($diagnostic) && ($diagnostic->code ?? null) === $code) {
+                $match = $diagnostic;
+                break;
+            }
+        }
+        $this->world->assert($match !== null, sprintf('no "%s" diagnostic found in %s', $code, $path));
+
+        $params = new CodeActionParams(
+            new TextDocumentIdentifier($path),
+            $match->range,
+            new CodeActionContext([$match]),
+        );
+        $this->world->request('textDocument/codeAction', $params);
+    }
+
+    /**
      * @Then a code action titled :title is offered
      */
     public function aCodeActionTitledIsOffered(string $title): void

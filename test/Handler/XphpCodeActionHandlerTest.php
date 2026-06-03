@@ -169,6 +169,7 @@ final class XphpCodeActionHandlerTest extends TestCase
             new ImportCodeActionProvider($fqnIndex, $cache),
             new DiagnosticCodeActionProvider(),
             new OptimizeImportsCodeActionProvider($cache),
+            new \XPHP\Lsp\Resolver\BoundErrorCodeActionProvider(),
         );
     }
 

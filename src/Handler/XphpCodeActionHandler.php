@@ -15,6 +15,7 @@ use Phpactor\LanguageServerProtocol\CodeActionOptions;
 use Phpactor\LanguageServerProtocol\CodeActionParams;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\PositionMap;
+use XPHP\Lsp\Resolver\BoundErrorCodeActionProvider;
 use XPHP\Lsp\Resolver\DiagnosticCodeActionProvider;
 use XPHP\Lsp\Resolver\ImportCodeActionProvider;
 use XPHP\Lsp\Resolver\OptimizeImportsCodeActionProvider;
@@ -48,6 +49,7 @@ final class XphpCodeActionHandler implements Handler, CanRegisterCapabilities
         private readonly ImportCodeActionProvider $importProvider,
         private readonly DiagnosticCodeActionProvider $diagnosticProvider,
         private readonly OptimizeImportsCodeActionProvider $optimizeImportsProvider,
+        private readonly BoundErrorCodeActionProvider $boundErrorProvider,
     ) {
     }
 
@@ -97,6 +99,12 @@ final class XphpCodeActionHandler implements Handler, CanRegisterCapabilities
             $params->context->diagnostics ?? [],
         );
         $optimizeActions = $this->optimizeImportsProvider->actionsFor($uri, $item->version, $item->text);
-        return new Success(array_merge($importActions, $diagnosticActions, $optimizeActions));
+        $boundActions = $this->boundErrorProvider->actionsFor(
+            $uri,
+            $item->version,
+            $item->text,
+            $params->context->diagnostics ?? [],
+        );
+        return new Success(array_merge($importActions, $diagnosticActions, $optimizeActions, $boundActions));
     }
 }

@@ -294,6 +294,7 @@ final class LspDispatcherFactory implements DispatcherFactory
                 new ImportCodeActionProvider($fqnIndex, $cache),
                 new DiagnosticCodeActionProvider(),
                 new OptimizeImportsCodeActionProvider($cache),
+                new \XPHP\Lsp\Resolver\BoundErrorCodeActionProvider(),
             ),
             new XphpCodeActionResolveHandler(),
             new XphpDocumentSymbolHandler($workspace, $cache),

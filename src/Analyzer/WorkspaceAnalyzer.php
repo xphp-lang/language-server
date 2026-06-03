@@ -106,10 +106,41 @@ final readonly class WorkspaceAnalyzer
             $this->recordDefinitions($ast, $registry, $uri);
         }
 
+        // Index every named class declaration so the bound-violation fix-its
+        // can (a) offer concrete types that satisfy the bound and (b) locate the
+        // offending concrete class to add an `implements` clause. Open files
+        // carry source (needed to compute a cross-file edit); filesystem-only
+        // hierarchy entries contribute candidate FQNs only.
+        $openClasses = [];
+        $allClassFqns = [];
+        foreach ($files as $path => $entry) {
+            foreach (self::collectClasses($entry['ast']) as $cls) {
+                $openClasses[$cls['fqn']] = ['uri' => $path, 'node' => $cls['node'], 'source' => $entry['source']];
+                $allClassFqns[$cls['fqn']] = true;
+            }
+        }
+        foreach ($hierarchyAsts as $uri => $ast) {
+            if (isset($files[$uri])) {
+                continue;
+            }
+            foreach (self::collectClasses($ast) as $cls) {
+                $allClassFqns[$cls['fqn']] = true;
+            }
+        }
+
         // Second pass: instantiations. Bound violations fire here.
         foreach ($files as $path => $entry) {
             $positionMap = new PositionMap($entry['source']);
-            $this->walkInstantiations($entry['ast'], $registry, $positionMap, $diagnosticsByFile[$path]);
+            $this->walkInstantiations(
+                $entry['ast'],
+                $registry,
+                $positionMap,
+                $entry['source'],
+                $hierarchy,
+                $openClasses,
+                array_keys($allClassFqns),
+                $diagnosticsByFile[$path],
+            );
         }
 
         // Third pass: argument-type checking across all call shapes --
@@ -226,20 +257,36 @@ final readonly class WorkspaceAnalyzer
     }
 
     /**
-     * @param list<Node\Stmt> $ast
-     * @param list<Diagnostic> $diagnostics
+     * @param list<Node\Stmt>                                                          $ast
+     * @param array<string, array{uri: string, node: ClassLike, source: string}>       $openClasses
+     * @param list<string>                                                             $allClassFqns
+     * @param list<Diagnostic>                                                         $diagnostics
      */
     private function walkInstantiations(
         array $ast,
         Registry $registry,
         PositionMap $positionMap,
+        string $source,
+        TypeHierarchy $hierarchy,
+        array $openClasses,
+        array $allClassFqns,
         array &$diagnostics,
     ): void {
-        $visitor = new class($registry, $positionMap, $diagnostics) extends NodeVisitorAbstract {
-            /** @param list<Diagnostic> $diagnostics */
+        $analyzer = $this;
+        $visitor = new class($registry, $positionMap, $source, $hierarchy, $openClasses, $allClassFqns, $analyzer, $diagnostics) extends NodeVisitorAbstract {
+            /**
+             * @param array<string, array{uri: string, node: ClassLike, source: string}> $openClasses
+             * @param list<string>                                                       $allClassFqns
+             * @param list<Diagnostic>                                                   $diagnostics
+             */
             public function __construct(
                 private readonly Registry $registry,
                 private readonly PositionMap $positionMap,
+                private readonly string $source,
+                private readonly TypeHierarchy $hierarchy,
+                private readonly array $openClasses,
+                private readonly array $allClassFqns,
+                private readonly WorkspaceAnalyzer $analyzer,
                 private array &$diagnostics,
             ) {
             }
@@ -274,18 +321,33 @@ final readonly class WorkspaceAnalyzer
                     } else {
                         [$sl, $sc, $el, $ec] = $this->positionMap->fullLineRangeFromNikic($node->getStartLine());
                     }
+                    // Registry::recordInstantiation has two error paths
+                    // (bound violation vs. hash collision). The triage helper
+                    // distinguishes them by the message's leading phrase so
+                    // editors / users can act on the right hint (raise
+                    // XPHP_HASH_LENGTH vs. fix the bound).
+                    $code = DiagnosticCode::fromRegistryRecordInstantiationException($e);
+                    $data = $code === DiagnosticCode::BoundViolation
+                        ? $this->analyzer->buildBoundFixData(
+                            $node,
+                            $args,
+                            $fqn,
+                            $this->source,
+                            $this->positionMap,
+                            $this->registry,
+                            $this->hierarchy,
+                            $this->openClasses,
+                            $this->allClassFqns,
+                        )
+                        : null;
                     $this->diagnostics[] = new Diagnostic(
                         startLine: $sl,
                         startCharacter: $sc,
                         endLine: $el,
                         endCharacter: $ec,
                         message: $e->getMessage(),
-                        // Registry::recordInstantiation has two error paths
-                        // (bound violation vs. hash collision). The triage helper
-                        // distinguishes them by the message's leading phrase so
-                        // editors / users can act on the right hint (raise
-                        // XPHP_HASH_LENGTH vs. fix the bound).
-                        code: DiagnosticCode::fromRegistryRecordInstantiationException($e),
+                        code: $code,
+                        data: $data,
                     );
                 }
                 return null;
@@ -295,5 +357,218 @@ final readonly class WorkspaceAnalyzer
         $traverser = new NodeTraverser();
         $traverser->addVisitor($visitor);
         $traverser->traverse($ast);
+    }
+
+    /**
+     * Compute the structured fix-it payload for a generic bound violation:
+     * which type parameter / bound was violated, the offending concrete type,
+     * the source range of the offending type-argument (for a "swap" fix),
+     * concrete workspace types that DO satisfy the bound, and -- when the
+     * concrete type is an open-buffer class -- where to add an `implements`
+     * clause (for an "implement the interface" fix).
+     *
+     * Returns null when the violating param can't be pinned down, leaving a
+     * plain (fix-less) diagnostic.
+     *
+     * @param list<mixed>                                                        $args TypeRef[]
+     * @param array<string, array{uri: string, node: ClassLike, source: string}> $openClasses
+     * @param list<string>                                                       $allClassFqns
+     * @return array<string, mixed>|null
+     */
+    public function buildBoundFixData(
+        Name $node,
+        array $args,
+        string $templateFqn,
+        string $source,
+        PositionMap $positionMap,
+        Registry $registry,
+        TypeHierarchy $hierarchy,
+        array $openClasses,
+        array $allClassFqns,
+    ): ?array {
+        $definition = $registry->definition($templateFqn);
+        if ($definition === null) {
+            return null;
+        }
+        $typeParams = $definition->typeParams;
+        if (count($typeParams) !== count($args)) {
+            return null;
+        }
+
+        // Locate the first type-param whose bound the supplied arg violates.
+        $index = null;
+        foreach ($typeParams as $i => $param) {
+            if ($param->boundFqn === null) {
+                continue;
+            }
+            if ($hierarchy->isSubtype($args[$i]->name, $param->boundFqn) !== true) {
+                $index = $i;
+                break;
+            }
+        }
+        if ($index === null) {
+            return null;
+        }
+
+        $bound = ltrim((string) $typeParams[$index]->boundFqn, '\\');
+        $concrete = ltrim((string) $args[$index]->name, '\\');
+        $concreteIsScalar = (bool) ($args[$index]->isScalar ?? false);
+
+        // Candidate concrete types that satisfy the bound (for the "swap" fix).
+        $candidates = [];
+        foreach ($allClassFqns as $candidateFqn) {
+            if ($candidateFqn === $concrete) {
+                continue;
+            }
+            if ($hierarchy->isSubtype($candidateFqn, $bound) === true) {
+                $short = strrpos($candidateFqn, '\\') !== false
+                    ? substr($candidateFqn, strrpos($candidateFqn, '\\') + 1)
+                    : $candidateFqn;
+                $candidates[$short] = true;
+            }
+        }
+        $candidateNames = array_keys($candidates);
+        sort($candidateNames);
+        $candidateNames = array_slice($candidateNames, 0, 3);
+
+        return [
+            'kind' => 'bound',
+            'param' => $typeParams[$index]->name,
+            'bound' => $bound,
+            'concrete' => $concrete,
+            'concreteIsScalar' => $concreteIsScalar,
+            'typeArgRange' => self::typeArgRange($source, $node->getEndFilePos() + 1, $index, $positionMap),
+            'candidates' => $candidateNames,
+            'implementsInsert' => $concreteIsScalar
+                ? null
+                : self::implementsInsert($openClasses[$concrete] ?? null, $bound),
+        ];
+    }
+
+    /**
+     * Resolve the LSP range of the type-argument at `$index` in the `<…>`
+     * clause that follows `$fromOffset` in the original source. Generic
+     * clauses are stripped to equal-length whitespace before nikic parses, so
+     * byte offsets are 1:1 with the original text the PositionMap was built on.
+     *
+     * @return array{startLine: int, startCharacter: int, endLine: int, endCharacter: int}|null
+     */
+    private static function typeArgRange(string $source, int $fromOffset, int $index, PositionMap $positionMap): ?array
+    {
+        $len = strlen($source);
+        $i = $fromOffset;
+        while ($i < $len && ctype_space($source[$i])) {
+            $i++;
+        }
+        if ($i >= $len || $source[$i] !== '<') {
+            return null;
+        }
+        $i++;
+        $depth = 0;
+        $segmentStart = $i;
+        $segments = [];
+        for (; $i < $len; $i++) {
+            $ch = $source[$i];
+            if ($ch === '<') {
+                $depth++;
+            } elseif ($ch === '>') {
+                if ($depth === 0) {
+                    $segments[] = [$segmentStart, $i];
+                    break;
+                }
+                $depth--;
+            } elseif ($ch === ',' && $depth === 0) {
+                $segments[] = [$segmentStart, $i];
+                $segmentStart = $i + 1;
+            }
+        }
+        if (!isset($segments[$index])) {
+            return null;
+        }
+        [$start, $end] = $segments[$index];
+        while ($start < $end && ctype_space($source[$start])) {
+            $start++;
+        }
+        while ($end > $start && ctype_space($source[$end - 1])) {
+            $end--;
+        }
+        if ($end <= $start) {
+            return null;
+        }
+        [$sl, $sc, $el, $ec] = $positionMap->rangeFromOffsets($start, $end);
+        return ['startLine' => $sl, 'startCharacter' => $sc, 'endLine' => $el, 'endCharacter' => $ec];
+    }
+
+    /**
+     * Compute where to insert an `implements \Bound` clause on the concrete
+     * class so it satisfies the violated bound. Only open-buffer `class`
+     * declarations are supported (the edit needs the file's source). Returns
+     * null when the concrete type isn't an editable open class or already
+     * implements the bound.
+     *
+     * @param array{uri: string, node: ClassLike, source: string}|null $entry
+     * @return array{uri: string, line: int, character: int, newText: string}|null
+     */
+    private static function implementsInsert(?array $entry, string $bound): ?array
+    {
+        if ($entry === null || !$entry['node'] instanceof Node\Stmt\Class_) {
+            return null;
+        }
+        $class = $entry['node'];
+        $boundShort = strrpos($bound, '\\') !== false ? substr($bound, strrpos($bound, '\\') + 1) : $bound;
+        foreach ($class->implements as $impl) {
+            $parts = $impl->getParts();
+            if (end($parts) === $boundShort) {
+                return null; // already implements it
+            }
+        }
+
+        if ($class->implements !== []) {
+            $anchor = $class->implements[count($class->implements) - 1];
+            $newText = ', \\' . $bound;
+        } elseif ($class->extends !== null) {
+            $anchor = $class->extends;
+            $newText = ' implements \\' . $bound;
+        } elseif ($class->name !== null) {
+            $anchor = $class->name;
+            $newText = ' implements \\' . $bound;
+        } else {
+            return null;
+        }
+        $insertOffset = $anchor->getEndFilePos() + 1;
+        if ($insertOffset <= 0) {
+            return null;
+        }
+        [$line, $character] = (new PositionMap($entry['source']))->offsetToPosition($insertOffset);
+        return ['uri' => $entry['uri'], 'line' => $line, 'character' => $character, 'newText' => $newText];
+    }
+
+    /**
+     * Collect every named ClassLike in an AST paired with its computed FQN
+     * (namespace + short name). Mirrors collectTemplateDeclarations but for
+     * ALL classes, not just generic templates.
+     *
+     * @param list<Node\Stmt> $ast
+     * @return list<array{fqn: string, node: ClassLike}>
+     */
+    private static function collectClasses(array $ast): array
+    {
+        $out = [];
+        foreach ($ast as $stmt) {
+            if ($stmt instanceof Node\Stmt\Namespace_) {
+                $ns = $stmt->name === null ? '' : $stmt->name->toString();
+                foreach ($stmt->stmts as $inner) {
+                    if ($inner instanceof ClassLike && $inner->name !== null) {
+                        $short = $inner->name->toString();
+                        $out[] = ['fqn' => $ns !== '' ? $ns . '\\' . $short : $short, 'node' => $inner];
+                    }
+                }
+                continue;
+            }
+            if ($stmt instanceof ClassLike && $stmt->name !== null) {
+                $out[] = ['fqn' => $stmt->name->toString(), 'node' => $stmt];
+            }
+        }
+        return $out;
     }
 }
