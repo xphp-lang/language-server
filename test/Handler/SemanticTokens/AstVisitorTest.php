@@ -379,7 +379,58 @@ final class AstVisitorTest extends TestCase
         self::assertEmpty($fooSpecs, '`Foo` outside a generic body must not be classified as typeParameter');
     }
 
+    public function testInterpolatedStringDecomposesIntoLiteralSlabsAndVariable(): void
+    {
+        $source = <<<'XPHP'
+        <?php
+        $name = 'x';
+        $g = "Hello $name world";
+        XPHP;
+        $specs = $this->collect($source);
+
+        // The interpolated variable highlights as a variable INSIDE the string.
+        $this->assertTokenSubstring($specs, $source, '$name', 'variable');
+        // The literal slabs on either side stay `string`.
+        $this->assertTokenSubstring($specs, $source, 'Hello ', 'string');
+        $this->assertTokenSubstring($specs, $source, ' world', 'string');
+    }
+
+    public function testNonAsciiStringLengthIsUtf16NotBytes(): void
+    {
+        // `"café"` is 6 UTF-16 code units (quotes + c, a, f, é) but 7 bytes
+        // (é is 2 bytes in UTF-8). The emitted length must be the UTF-16 count.
+        $source = "<?php\n\$g = \"caf\u{00e9}\";\n";
+        $token = $this->firstSpecOfType($this->collect($source), 'string');
+
+        self::assertNotNull($token, 'expected a string token');
+        self::assertSame(6, $token->length, 'token length must be UTF-16 code units, not bytes');
+    }
+
+    public function testFourByteCharacterCountsAsTwoUtf16Units(): void
+    {
+        // A supplementary-plane char (😀, 4 UTF-8 bytes) is a UTF-16 surrogate
+        // pair (2 units). `"😀"` => quote + 2 + quote = 4 UTF-16 units.
+        $source = "<?php\n\$g = \"\u{1F600}\";\n";
+        $token = $this->firstSpecOfType($this->collect($source), 'string');
+
+        self::assertNotNull($token, 'expected a string token');
+        self::assertSame(4, $token->length);
+    }
+
     // --- helpers -----------------------------------------------------------
+
+    /**
+     * @param list<TokenSpec> $specs
+     */
+    private function firstSpecOfType(array $specs, string $type): ?TokenSpec
+    {
+        foreach ($specs as $spec) {
+            if ($spec->type === $type) {
+                return $spec;
+            }
+        }
+        return null;
+    }
 
     /**
      * @return list<TokenSpec>

@@ -170,6 +170,18 @@ final readonly class PositionMap
     }
 
     /**
+     * Length of a byte string in UTF-16 code units -- the unit LSP uses for
+     * both column offsets AND semantic-token lengths. Exposes the same
+     * conversion {@see offsetToPosition} uses internally so callers that hold a
+     * byte span (e.g. the semantic-token emitter) can report a spec-correct
+     * length instead of a byte count.
+     */
+    public static function lengthInUtf16(string $text): int
+    {
+        return self::toLspCharacter($text);
+    }
+
+    /**
      * UTF-16 code-unit count -- the LSP wire encoding for column offsets.
      * BMP characters (UTF-8 1/2/3-byte) contribute 1 unit each;
      * supplementary-plane characters (UTF-8 4-byte) contribute 2 because

@@ -36,9 +36,14 @@ use XPHP\Transpiler\Monomorphize\ByteOffsetMap;
  * 1. **Token scan** via PHP's built-in {@see PhpToken::tokenize}.  The
  *    tokens are byte-indexed into the ORIGINAL source (not the stripped
  *    buffer), so positions feed directly into {@see PositionMap}.
- *    Emits keywords, variables, numbers, single-quoted strings,
- *    double-quoted strings (as a single span -- finer-grained
- *    interpolation classification is not yet handled), and comments.  Deliberately
+ *    Emits keywords, variables, numbers, and comments.  Strings are
+ *    classified at token granularity: a non-interpolated string is one
+ *    `string` span; an interpolated `"… $x …"` is decomposed by the
+ *    tokenizer into its literal slabs (`T_ENCAPSED_AND_WHITESPACE` ->
+ *    `string`) and inner `T_VARIABLE` (-> `variable`), each emitted
+ *    separately so the variable highlights inside the string.  Token
+ *    lengths are reported in UTF-16 code units (LSP's unit), so a token
+ *    spanning a multi-byte character stays spec-correct.  Deliberately
  *    skips T_STRING (identifiers) so the AST pass can classify each
  *    identifier into its semantic role without overlap.
  *
@@ -477,10 +482,12 @@ final class AstVisitor
             return;
         }
         [$line, $startChar] = $this->positionMap->offsetToPosition($originalOffset);
-        // Length stays in BYTES at this point -- correct for ASCII-only
-        // identifiers (the vast majority of PHP source).  LSP wants
-        // UTF-16 code units; for ASCII the two are equal.  Non-ASCII
-        // tokens (e.g. UTF-8 strings) are an edge case not yet handled.
+        // LSP measures token lengths in UTF-16 code units, not bytes. For
+        // ASCII the two are equal (the common case), but a token covering a
+        // multi-byte character (e.g. a `"café"` string literal) would be
+        // over-long by the extra UTF-8 bytes if we reported the byte count.
+        // Convert the covered byte span to its UTF-16 length.
+        $length = PositionMap::lengthInUtf16(substr($this->source, $originalOffset, $length));
         $out[] = new TokenSpec(
             line: $line,
             startChar: $startChar,
