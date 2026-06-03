@@ -139,12 +139,19 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
             }
         }
 
-        // Enrich the bound-check hierarchy with every filesystem-indexed file the
+        // Enrich the bound-check hierarchy with filesystem-indexed files the
         // ParsedDocumentCacheWarmer has already parsed. Without this, the workspace
         // pass only sees open buffers — so `new Box<Tag>(…)` in an open file dependent
         // on a Tag class that's on disk but not open fires a spurious
-        // "concrete type is not in the source set" diagnostic. Open-buffer entries
-        // already in $parsedFiles take precedence and are skipped here.
+        // "concrete type is not in the source set" diagnostic.
+        //
+        // A file is admitted only when it is the NEAREST declarer (to the document
+        // being linted) of a class it defines. That keeps each FQN's ancestry
+        // single-sourced even when the workspace has duplicate FQNs across
+        // packages / fixture trees (`pathFor` resolves the proximity winner;
+        // open buffers already in $parsedFiles win and exclude their on-disk
+        // copies). Files that declare no class — pure usage sites — contribute
+        // nothing to the ancestry and are skipped.
         $hierarchyAsts = [];
         foreach ($this->fqnIndex->indexedFilesystemPaths() as $path) {
             $uri = 'file://' . $path;
@@ -155,7 +162,12 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
             if ($peek === null || $peek->ast === null) {
                 continue;
             }
-            $hierarchyAsts[$uri] = $peek->ast;
+            foreach (WorkspaceAnalyzer::classFqnsIn($peek->ast) as $fqn) {
+                if ($this->fqnIndex->pathFor($fqn, $currentUri) === $path) {
+                    $hierarchyAsts[$uri] = $peek->ast;
+                    break;
+                }
+            }
         }
 
         $workspaceByUri = $parsedFiles === []

@@ -544,6 +544,20 @@ final readonly class WorkspaceAnalyzer
     }
 
     /**
+     * Every named-class FQN declared in an AST. Used by the diagnostics
+     * provider to keep the bound-check hierarchy free of duplicate-FQN
+     * collisions: a filesystem file enters the hierarchy only when it's the
+     * nearest declarer of a class it defines.
+     *
+     * @param list<Node\Stmt> $ast
+     * @return list<string>
+     */
+    public static function classFqnsIn(array $ast): array
+    {
+        return array_map(static fn (array $cls): string => $cls['fqn'], self::collectClasses($ast));
+    }
+
+    /**
      * Collect every named ClassLike in an AST paired with its computed FQN
      * (namespace + short name). Mirrors collectTemplateDeclarations but for
      * ALL classes, not just generic templates.

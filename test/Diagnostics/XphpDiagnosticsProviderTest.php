@@ -564,6 +564,77 @@ final class XphpDiagnosticsProviderTest extends TestCase
         );
     }
 
+    public function testBoundCheckUsesTheTypeArgDeclarationNearestTheLintedFile(): void
+    {
+        // Two packages declare the SAME FQN `App\Shared\Tag`, but only pkgA's
+        // implements \Stringable. The bound check on a file in pkgA must use
+        // pkgA's Tag (bound satisfied -> no diagnostic); the same instantiation
+        // in pkgB must use pkgB's Tag (bound violated -> diagnostic). This
+        // exercises the proximity-scoped hierarchy: each FQN's ancestry comes
+        // from its nearest declarer, not whichever copy was walked last.
+        $root = sys_get_temp_dir() . '/xphp-diag-proximity-' . bin2hex(random_bytes(6));
+        mkdir($root . '/pkgA', 0o755, true);
+        mkdir($root . '/pkgB', 0o755, true);
+        try {
+            $box = <<<'PHP'
+            <?php
+            namespace App\Shared;
+            class Box<T: \Stringable>
+            {
+                public function __construct(public T $item) {}
+            }
+            PHP;
+            file_put_contents($root . '/pkgA/Box.xphp', $box);
+            file_put_contents($root . '/pkgB/Box.xphp', $box);
+            file_put_contents($root . '/pkgA/Tag.xphp', <<<'PHP'
+            <?php
+            namespace App\Shared;
+            final class Tag implements \Stringable
+            {
+                public function __toString(): string { return 'tag'; }
+            }
+            PHP);
+            file_put_contents($root . '/pkgB/Tag.xphp', <<<'PHP'
+            <?php
+            namespace App\Shared;
+            final class Tag {}
+            PHP);
+
+            $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
+            $cache = new ParsedDocumentCache(new Analyzer($parser));
+            $workspace = new PhpactorWorkspace();
+            $fqnIndex = new FqnIndex($workspace, $cache, $parser, $root);
+            (new \XPHP\Lsp\Analyzer\ParsedDocumentCacheWarmer($fqnIndex, $cache, $workspace))->warmNow();
+
+            $useSource = "<?php\nnamespace App\\Shared;\n\$x = new Box<Tag>(new Tag());\n";
+            $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
+
+            $useA = $this->openDoc($workspace, 'file://' . $root . '/pkgA/Use.xphp', $useSource);
+            $diagsA = $this->codes(wait($provider->provideDiagnostics($useA, (new CancellationTokenSource())->getToken())));
+            self::assertNotContains('xphp.bound', $diagsA, 'pkgA Tag implements \Stringable -> no violation');
+
+            $useB = $this->openDoc($workspace, 'file://' . $root . '/pkgB/Use.xphp', $useSource);
+            $diagsB = $this->codes(wait($provider->provideDiagnostics($useB, (new CancellationTokenSource())->getToken())));
+            self::assertContains('xphp.bound', $diagsB, 'pkgB Tag does not implement \Stringable -> violation');
+        } finally {
+            foreach (['pkgA', 'pkgB'] as $pkg) {
+                array_map('unlink', glob($root . '/' . $pkg . '/*') ?: []);
+                @rmdir($root . '/' . $pkg);
+            }
+            @rmdir($root);
+        }
+    }
+
+    /**
+     * @param list<LspDiagnostic> $diagnostics
+     * @return list<string>
+     */
+    private function codes(mixed $diagnostics): array
+    {
+        $diagnostics = is_array($diagnostics) ? $diagnostics : [];
+        return array_values(array_map(static fn ($d): string => (string) $d->code, $diagnostics));
+    }
+
     /**
      * @return list<LspDiagnostic>
      */
