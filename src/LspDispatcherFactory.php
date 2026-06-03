@@ -182,6 +182,9 @@ final class LspDispatcherFactory implements DispatcherFactory
             new WorkspaceAnalyzer(),
             $workspace,
             $fqnIndex,
+            // Push path: lets a workspace pass re-publish diagnostics for the
+            // dependents of the edited file (cross-file broadcast).
+            $clientApi,
         );
 
         $diagnosticsEngine = new DiagnosticsEngine(

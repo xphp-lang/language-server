@@ -6,6 +6,11 @@ namespace XPHP\Lsp\Test\Diagnostics;
 
 use Amp\CancellationTokenSource;
 use PhpParser\ParserFactory;
+use Phpactor\LanguageServer\Core\Rpc\NotificationMessage;
+use Phpactor\LanguageServer\Core\Server\ClientApi;
+use Phpactor\LanguageServer\Core\Server\ResponseWatcher\DeferredResponseWatcher;
+use Phpactor\LanguageServer\Core\Server\RpcClient\JsonRpcClient;
+use Phpactor\LanguageServer\Core\Server\Transmitter\TestMessageTransmitter;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServerProtocol\Diagnostic as LspDiagnostic;
 use Phpactor\LanguageServerProtocol\TextDocumentItem;
@@ -471,6 +476,94 @@ final class XphpDiagnosticsProviderTest extends TestCase
         self::assertSame('xphp.bound', $diagnostics[0]->code);
     }
 
+    public function testEditingADependencyBroadcastsDiagnosticsForOpenDependents(): void
+    {
+        // Box.xphp declares a bounded template; Use.xphp instantiates it with a
+        // type that violates the bound. Linting Box.xphp (e.g. the user is
+        // editing it) must re-publish Use.xphp's diagnostics WITHOUT the user
+        // touching Use.xphp -- that's the cross-file broadcast.
+        $workspace = new PhpactorWorkspace();
+        $transmitter = new TestMessageTransmitter();
+        $provider = $this->newBroadcastProvider($workspace, $transmitter);
+
+        $boxDoc = $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T: \Stringable> { public T $item; }
+        XPHP);
+        $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        $x = new Box<int>();
+        XPHP);
+
+        wait($provider->provideDiagnostics($boxDoc, (new CancellationTokenSource())->getToken()));
+
+        $published = self::publishedDiagnosticsFor($transmitter, '/Use.xphp');
+        self::assertCount(1, $published, 'expected exactly one publish for the dependent');
+        $diagnostics = array_values($published[0]['diagnostics']);
+        self::assertCount(1, $diagnostics);
+        self::assertSame('xphp.bound', $diagnostics[0]->code);
+    }
+
+    public function testUnchangedDependentIsNotRebroadcast(): void
+    {
+        // Linting the dependency twice with no change must publish the
+        // dependent's diagnostics only once (the signature guard).
+        $workspace = new PhpactorWorkspace();
+        $transmitter = new TestMessageTransmitter();
+        $provider = $this->newBroadcastProvider($workspace, $transmitter);
+
+        $boxDoc = $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T: \Stringable> { public T $item; }
+        XPHP);
+        $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        $x = new Box<int>();
+        XPHP);
+
+        $token = (new CancellationTokenSource())->getToken();
+        wait($provider->provideDiagnostics($boxDoc, $token));
+        wait($provider->provideDiagnostics($boxDoc, $token));
+
+        self::assertCount(
+            1,
+            self::publishedDiagnosticsFor($transmitter, '/Use.xphp'),
+            'an unchanged dependent must not be re-published',
+        );
+    }
+
+    public function testTheLintedDocumentIsNotBroadcastByTheProvider(): void
+    {
+        // The engine publishes the document being linted; the broadcast must
+        // NOT also publish it (that would double-publish the current file).
+        $workspace = new PhpactorWorkspace();
+        $transmitter = new TestMessageTransmitter();
+        $provider = $this->newBroadcastProvider($workspace, $transmitter);
+
+        $useDoc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        $x = new Box<int>();
+        XPHP);
+        $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T: \Stringable> { public T $item; }
+        XPHP);
+
+        wait($provider->provideDiagnostics($useDoc, (new CancellationTokenSource())->getToken()));
+
+        self::assertSame(
+            [],
+            self::publishedDiagnosticsFor($transmitter, '/Use.xphp'),
+            'the linted document must not be broadcast by the provider',
+        );
+    }
+
     /**
      * @return list<LspDiagnostic>
      */
@@ -500,5 +593,43 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $item = new TextDocumentItem($uri, 'xphp', 1, $text);
         $workspace->open($item);
         return $item;
+    }
+
+    private function newBroadcastProvider(
+        PhpactorWorkspace $workspace,
+        TestMessageTransmitter $transmitter,
+    ): XphpDiagnosticsProvider {
+        $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
+        $cache = new ParsedDocumentCache(new Analyzer($parser));
+        $clientApi = new ClientApi(new JsonRpcClient($transmitter, new DeferredResponseWatcher()));
+        return new XphpDiagnosticsProvider(
+            $cache,
+            new WorkspaceAnalyzer(),
+            $workspace,
+            new FqnIndex($workspace, $cache, $parser, ''),
+            $clientApi,
+        );
+    }
+
+    /**
+     * Collect the `textDocument/publishDiagnostics` notifications transmitted
+     * for a given URI, decoded into `{uri, version, diagnostics}` arrays.
+     *
+     * @return list<array{uri: string, version: ?int, diagnostics: list<LspDiagnostic>}>
+     */
+    private static function publishedDiagnosticsFor(TestMessageTransmitter $transmitter, string $uri): array
+    {
+        $out = [];
+        $filtered = $transmitter->filterByMethod('textDocument/publishDiagnostics');
+        while (($message = $filtered->shift()) !== null) {
+            if (!$message instanceof NotificationMessage) {
+                continue;
+            }
+            $params = $message->params;
+            if (($params['uri'] ?? null) === $uri) {
+                $out[] = $params;
+            }
+        }
+        return $out;
     }
 }

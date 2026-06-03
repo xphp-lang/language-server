@@ -17,7 +17,8 @@ features/
 ├── edit/       rename, code actions, code lens, willRenameFiles
 ├── understand/ hover, signature help, inlay hints, folding ranges, semantic tokens
 ├── validate/   diagnostics (parse, undefined-name, bound, duplicate,
-│               argument-type mismatch: ctor / method / static / function)
+│               argument-type mismatch: ctor / method / static / function),
+│               cross-file broadcast (push-mode re-publish of dependents)
 └── find/       completion, completion-item resolve
 ```
 

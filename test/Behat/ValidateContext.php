@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace XPHP\Lsp\Test\Behat;
 
 use Behat\Behat\Context\Context;
+use Behat\Gherkin\Node\PyStringNode;
 
 /**
  * Steps for the Validate theme: diagnostics (parse errors, generic bound
- * violations, duplicate templates, undefined barewords, constructor-arg
+ * violations, duplicate templates, undefined barewords, argument-type
  * mismatches). Diagnostics are pulled through the real XphpPullDiagnosticsHandler
  * over the open workspace -- cross-file checks see every open document.
+ *
+ * The cross-file broadcast steps additionally drive the PUSH path: the real
+ * diagnostics engine re-publishes a dependent's diagnostics when an unrelated
+ * file it depends on is edited.
  */
 final class ValidateContext implements Context
 {
@@ -18,6 +23,46 @@ final class ValidateContext implements Context
 
     public function __construct(private readonly World $world)
     {
+    }
+
+    /**
+     * @Given the diagnostics service is running
+     */
+    public function theDiagnosticsServiceIsRunning(): void
+    {
+        $this->world->startDiagnosticsService();
+    }
+
+    /**
+     * @When I change the file at :path to contain the following lines:
+     */
+    public function iChangeTheFileToContain(string $path, PyStringNode $lines): void
+    {
+        $this->world->changeFile($path, $lines->getRaw());
+    }
+
+    /**
+     * @Then a :code diagnostic is published for :path without re-requesting it
+     */
+    public function aDiagnosticIsPublishedFor(string $code, string $path): void
+    {
+        // Pump the cooperative loop until the broadcast publishes a diagnostic
+        // with this code for the (untouched) dependent, or give up.
+        for ($try = 0; $try < 100; $try++) {
+            foreach ($this->world->publishedDiagnostics($path) as $params) {
+                foreach ($params['diagnostics'] as $diagnostic) {
+                    if ((string) ($diagnostic->code ?? '') === $code) {
+                        return;
+                    }
+                }
+            }
+            $this->world->pumpLoop();
+        }
+        $this->world->fail(sprintf(
+            'expected a "%s" diagnostic to be broadcast for "%s"; none was published',
+            $code,
+            $path,
+        ));
     }
 
     /**
