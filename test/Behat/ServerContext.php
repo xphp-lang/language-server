@@ -103,4 +103,17 @@ final class ServerContext implements Context
         );
         $this->world->request($method, $params);
     }
+
+    /**
+     * Cross-theme negative assertion.
+     *
+     * @Then the response is null
+     */
+    public function theResponseIsNull(): void
+    {
+        $this->world->assert(
+            $this->world->last() === null,
+            'expected a null response, got ' . get_debug_type($this->world->last()),
+        );
+    }
 }

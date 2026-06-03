@@ -17,12 +17,19 @@ Feature: Document symbol outline
       """
     And the FQN index has been warmed on initialize
 
-  Scenario: Outline a class with its members
+  Scenario: Outline a class with the right shape
     When I request "textDocument/documentSymbol" for "/User.xphp"
     Then the outline contains a class "User" with 5 members
-    And the class "User" has a constant member named "ROLE"
-    And the class "User" has a property member named "$name"
-    And the class "User" has a property member named "$age"
-    And the class "User" has a constructor member named "__construct"
-    And the class "User" has a method member named "shout"
     And the "User" selection range in "/User.xphp" covers "User"
+
+  Scenario Outline: Each declared member appears nested in the outline
+    When I request "textDocument/documentSymbol" for "/User.xphp"
+    Then the class "User" has a <kind> member named "<member>"
+
+    Examples:
+      | kind        | member      |
+      | constant    | ROLE        |
+      | property    | $name       |
+      | property    | $age        |
+      | constructor | __construct |
+      | method      | shout       |
