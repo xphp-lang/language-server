@@ -345,6 +345,48 @@ final class GenericResolver
     }
 
     /**
+     * Locate the declaration of the method called at `$byteOffset`: infer the
+     * receiver's class (reusing {@see resolveMethodCallSubstitutionAt()}'s
+     * inference) and look the method up xphp-natively via
+     * {@see FqnIndex::methodLocation()}. This is the go-to-definition path for
+     * generic method calls (`$users->first()` with `$users: Collection<User>`),
+     * where the receiver class carries generic syntax (`T[]`, reified `T`) that
+     * worse-reflection can't reliably reflect.
+     *
+     * Returns the location array ({uri, line, char, short}) or null when the
+     * cursor isn't on a resolvable method call.
+     *
+     * @return array{uri: string, line: int, char: int, short: string}|null
+     */
+    public function resolveMethodDeclarationAt(string $uri, int $byteOffset): ?array
+    {
+        if (!$this->workspace->has($uri)) {
+            return null;
+        }
+        $item = $this->workspace->get($uri);
+        $scopes = $this->scopesFor($uri, $item->version, $item->text);
+        $bindings = self::bindingsAt($scopes, $byteOffset);
+
+        $result = $this->documents->getOrParse($uri, $item->version, $item->text);
+        if ($result->ast === null) {
+            return null;
+        }
+        $call = self::findEnclosingMethodCallNameAt($result->ast, $byteOffset);
+        if ($call === null || !$call->name instanceof Identifier) {
+            return null;
+        }
+        $receiverType = self::inferType($call->var, $bindings, $this->classes, $this->fqnIndex, [], '');
+        if ($receiverType === null || $receiverType->ref->isScalar || $receiverType->ref->isTypeParam) {
+            return null;
+        }
+        $fqn = $receiverType->ref->name;
+        if ($fqn === '') {
+            return null;
+        }
+        return $this->fqnIndex->methodLocation($fqn, $call->name->toString());
+    }
+
+    /**
      * Resolve the FQN of the class that should host a member-access
      * completion at `$byteOffset`.  Generalises the existing
      * `resolveVariableTypeRef` swap in `PhpCompletionResolver`: walks

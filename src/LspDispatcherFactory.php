@@ -279,6 +279,7 @@ final class LspDispatcherFactory implements DispatcherFactory
                 $fqnIndex,
                 new ReferenceFinder($workspace, $cache, $fqnIndex, $xphpParser, $reflector, $genericResolver),
                 $phpDefinitionResolver,
+                $genericResolver,
             ),
             new XphpTypeDefinitionHandler($phpDefinitionResolver),
             new XphpCompletionHandler($workspace, $workspaceSymbols, $phpCompletionResolver, $fqnIndex, $reflector),

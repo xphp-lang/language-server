@@ -433,6 +433,33 @@ final class XphpDefinitionHandlerTest extends TestCase
         return wait($handler->definition($params));
     }
 
+    public function testJumpsFromGenericMethodCallToMethodDeclaration(): void
+    {
+        // worse-reflection can't reflect `Collection`'s generic body, so this
+        // resolves xphp-natively: GenericResolver infers the receiver class and
+        // FqnIndex locates the `first` method.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/Collection.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App\Containers;
+        class Collection<T>
+        {
+            public function first(): ?T { return null; }
+        }
+        XPHP));
+        $useSource = "<?php\nuse App\\Containers\\Collection;\n\$users = new Collection<int>();\n\$first = \$users->first();\n";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        $byte = strpos($useSource, '->first') + strlen('->'); // cursor on `first`
+        self::assertNotFalse($byte);
+        $location = $this->definitionAtOffset($this->newHandler($workspace), '/Use.xphp', $useSource, $byte);
+
+        self::assertNotNull($location);
+        self::assertSame('/Collection.xphp', $location->uri);
+        // Range squiggles the `first` method name (5 chars), not the whole line.
+        self::assertSame(5, $location->range->end->character - $location->range->start->character);
+    }
+
     private function newHandler(PhpactorWorkspace $workspace, ?string $rootPath = null): XphpDefinitionHandler
     {
         $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
@@ -459,6 +486,8 @@ final class XphpDefinitionHandlerTest extends TestCase
             new WorkspaceSymbols($workspace, $cache),
             $fqnIndex,
             $referenceFinder,
+            null,
+            $genericResolver,
         );
     }
 

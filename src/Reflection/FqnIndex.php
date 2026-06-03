@@ -641,6 +641,86 @@ final class FqnIndex
     }
 
     /**
+     * Locate a method declaration's name span by (class FQN, method name).
+     * Mirrors {@see locationForFqn} but resolves a member: finds the class's
+     * ClassLike (open doc first, then filesystem), the ClassMethod by name, and
+     * maps its name-node offset through the document's ByteOffsetMap. This is the
+     * xphp-native path go-to-definition uses for generic method calls -- the
+     * receiver class (e.g. `Collection<User>::first`) carries xphp syntax
+     * (`T[]`, reified `T`) that worse-reflection can't reliably reflect.
+     *
+     * Returns null when the class isn't found or declares no such method
+     * directly (inherited methods are not yet resolved).
+     *
+     * @return array{uri: string, line: int, char: int, short: string}|null
+     */
+    public function methodLocation(string $classFqn, string $methodName): ?array
+    {
+        $needle = ltrim($classFqn, '\\');
+        if ($needle === '' || $methodName === '') {
+            return null;
+        }
+
+        // Open-doc first: live view of unsaved edits beats the on-disk copy.
+        foreach ($this->workspace as $uri => $item) {
+            $result = $this->cache->getOrParse($uri, $item->version, $item->text);
+            if ($result->ast === null) {
+                continue;
+            }
+            $classLike = self::findClassLikeInAst($result->ast, $needle);
+            if ($classLike === null) {
+                continue;
+            }
+            $startByte = self::methodNameStartByte($classLike, $methodName);
+            if ($startByte === null) {
+                return null;
+            }
+            $origByte = $result->byteOffsetMap->toOriginal($startByte);
+            [$line, $char] = self::byteToLineChar($item->text, $origByte);
+            return ['uri' => (string) $uri, 'line' => $line, 'char' => $char, 'short' => $methodName];
+        }
+
+        $path = $this->filesystemMap()[$needle] ?? null;
+        if ($path === null) {
+            return null;
+        }
+        $source = @file_get_contents($path);
+        if ($source === false) {
+            return null;
+        }
+        try {
+            $parsed = $this->parser->parseTolerantWithMap($source);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($parsed === null || $parsed->ast === null) {
+            return null;
+        }
+        $classLike = self::findClassLikeInAst($parsed->ast, $needle);
+        if ($classLike === null) {
+            return null;
+        }
+        $startByte = self::methodNameStartByte($classLike, $methodName);
+        if ($startByte === null) {
+            return null;
+        }
+        $origByte = $parsed->byteOffsetMap->toOriginal($startByte);
+        [$line, $char] = self::byteToLineChar($source, $origByte);
+        return ['uri' => 'file://' . $path, 'line' => $line, 'char' => $char, 'short' => $methodName];
+    }
+
+    private static function methodNameStartByte(ClassLike $classLike, string $methodName): ?int
+    {
+        foreach ($classLike->getMethods() as $method) {
+            if (strcasecmp($method->name->toString(), $methodName) === 0) {
+                $start = $method->name->getStartFilePos();
+                return $start >= 0 ? $start : null;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Locate ANY declaration whose short name matches `$shortName`.  Used
      * by the definition handler's Path 2 (type-arg identifier inside a
      * `<...>` clause -- the `User` of `identity<User>(...)`) which the
