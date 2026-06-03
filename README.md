@@ -64,6 +64,7 @@ mindmap
       rename
       willRenameFiles
       codeAction
+      bound-error fix-it
       codeLens
     Understand
       hover
@@ -77,6 +78,8 @@ mindmap
       duplicate-template
       undefined-bareword
       constructor-arg-mismatch
+      argument-mismatch
+      cross-file broadcast
     Find
       completion
       completionItem/resolve
@@ -85,7 +88,7 @@ mindmap
       stub cache
       tolerant-parse
       UTF-16 columns
-      short-name tie-break
+      proximity FQN resolution
       lint mode
 ```
 

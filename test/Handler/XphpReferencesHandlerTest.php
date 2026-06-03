@@ -1058,6 +1058,50 @@ final class XphpReferencesHandlerTest extends TestCase
         return $result;
     }
 
+    public function testNewIsTrackedAsConstructorUsage(): void
+    {
+        // `new User(...)` calls User::__construct. Find Usages (and the
+        // code-lens count / highlight) on the constructor must include every
+        // instantiation, even though the source says `new User`, not
+        // `__construct`.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/User.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App;
+        class User {
+            public function __construct(public string $name) {}
+        }
+        XPHP));
+        $workspace->open(new TextDocumentItem('/Use1.xphp', 'xphp', 1, "<?php\nnamespace X;\nuse App\\User;\n\$a = new User('a');\n"));
+        $workspace->open(new TextDocumentItem('/Use2.xphp', 'xphp', 1, "<?php\nnamespace X;\nuse App\\User;\n\$b = new User('b');\n"));
+
+        $locations = $this->references($workspace, '/User.xphp', '__construct', 2);
+        $uris = array_map(fn (Location $l): string => $l->uri, $locations);
+        sort($uris);
+
+        // Declaration + both instantiation sites.
+        self::assertCount(3, $locations);
+        self::assertSame(['/Use1.xphp', '/Use2.xphp', '/User.xphp'], $uris);
+    }
+
+    public function testConstructorUsageCoversTheClassNameToken(): void
+    {
+        // The instantiation reference points at the class-name token of
+        // `new User()`, so highlight / usages land on `User`.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/User.xphp', 'xphp', 1, "<?php\nnamespace App;\nclass User {\n    public function __construct() {}\n}\n"));
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, "<?php\nnamespace X;\nuse App\\User;\n\$a = new User();\n"));
+
+        $locations = $this->references($workspace, '/User.xphp', '__construct', 2, includeDeclaration: false);
+        self::assertCount(1, $locations);
+
+        $useText = $workspace->get('/Use.xphp')->text;
+        $map = new PositionMap($useText);
+        $start = $map->positionToOffset($locations[0]->range->start->line, $locations[0]->range->start->character);
+        $end = $map->positionToOffset($locations[0]->range->end->line, $locations[0]->range->end->character);
+        self::assertSame('User', substr($useText, $start, $end - $start));
+    }
+
     private function references(
         PhpactorWorkspace $workspace,
         string $uri,

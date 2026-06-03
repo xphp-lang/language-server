@@ -28,6 +28,11 @@ final readonly class DiagnosticTranslator
         $lsp->severity = $d->severity->value;
         $lsp->code = $d->code->value;
         $lsp->source = 'xphp';
+        // Structured fix-it payload (e.g. bound-violation quick-fix facts).
+        // Clients echo `data` back on textDocument/codeAction.
+        if ($d->data !== null) {
+            $lsp->data = $d->data;
+        }
         return $lsp;
     }
 }

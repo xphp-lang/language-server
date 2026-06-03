@@ -570,7 +570,13 @@ final class ReferenceFinder
         return match ($target['kind']) {
             'alias' => [$target['aliasName']],
             'class', 'function' => [self::shortSegment($target['fqn'])],
-            'method', 'property' => [$target['memberName']],
+            // A `__construct` target is reached through `new ClassName(...)`
+            // sites, whose text is the class name, not `__construct` -- so the
+            // class short name must also count as a textual hit or the
+            // filesystem pre-filter would skip those files.
+            'method', 'property' => ($target['memberName'] ?? null) === '__construct' && isset($target['className'])
+                ? [$target['memberName'], self::shortSegment((string) $target['className'])]
+                : [$target['memberName']],
             default => [],
         };
     }
@@ -771,6 +777,31 @@ final class ReferenceFinder
                 return;
             }
             if ($target['kind'] === 'method') {
+                // `new X(...)` is a call to `X::__construct`. Count every
+                // instantiation as a reference to the constructor so "find
+                // usages", the code-lens count, and document-highlight see
+                // them -- the source text says `new X`, never `__construct`,
+                // so the plain member-name match below would miss it.
+                // Rename is unaffected: RenameProvider skips any reference
+                // whose covered text (here the class name) != the member name.
+                if ($targetName === '__construct'
+                    && $node instanceof New_
+                    && $node->class instanceof Name
+                ) {
+                    $resolved = $node->class->getAttribute('resolvedName');
+                    $instantiated = $resolved instanceof Name
+                        ? $resolved->toString()
+                        : ltrim($node->class->toString(), '\\');
+                    foreach ($targetClasses as $candidate) {
+                        if ($instantiated === $candidate
+                            || $this->inheritsMemberFromTarget($instantiated, $targetName, $candidate, true)
+                        ) {
+                            yield ['node' => $node->class, 'kind' => 'method'];
+                            break;
+                        }
+                    }
+                    continue;
+                }
                 if (($node instanceof MethodCall || $node instanceof NullsafeMethodCall)
                     && $node->name instanceof Identifier
                     && $node->name->toString() === $targetName

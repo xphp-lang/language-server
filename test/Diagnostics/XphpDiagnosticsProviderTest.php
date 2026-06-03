@@ -6,6 +6,11 @@ namespace XPHP\Lsp\Test\Diagnostics;
 
 use Amp\CancellationTokenSource;
 use PhpParser\ParserFactory;
+use Phpactor\LanguageServer\Core\Rpc\NotificationMessage;
+use Phpactor\LanguageServer\Core\Server\ClientApi;
+use Phpactor\LanguageServer\Core\Server\ResponseWatcher\DeferredResponseWatcher;
+use Phpactor\LanguageServer\Core\Server\RpcClient\JsonRpcClient;
+use Phpactor\LanguageServer\Core\Server\Transmitter\TestMessageTransmitter;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServerProtocol\Diagnostic as LspDiagnostic;
 use Phpactor\LanguageServerProtocol\TextDocumentItem;
@@ -104,6 +109,34 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $diagnostics = $this->lint($workspace, $boxDoc);
 
         self::assertSame([], $diagnostics, 'no duplicate-declaration must surface when the only file holding Box is the one being linted');
+    }
+
+    public function testDuplicateTemplateSurfacesOnWhicheverFileIsPulled(): void
+    {
+        // Two open files both declare `App\Box`. The pull provider forces the
+        // current file first in the workspace pass, which used to make it the
+        // canonical (clean) one -- so the duplicate only ever landed on the OTHER
+        // file and was never returned for the file the editor was looking at.
+        // Now a duplicate is flagged on ALL colliding declarations, so pulling
+        // diagnostics for EITHER file returns it.
+        $workspace = new PhpactorWorkspace();
+        $one = $this->openDoc($workspace, '/BoxOne.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T> { public T $item; }
+        XPHP);
+        $two = $this->openDoc($workspace, '/BoxTwo.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T> { public T $item; }
+        XPHP);
+
+        foreach ([$one, $two] as $doc) {
+            $diagnostics = $this->lint($workspace, $doc);
+            self::assertCount(1, $diagnostics, "duplicate must surface when pulling {$doc->uri}");
+            self::assertSame('xphp.definition', $diagnostics[0]->code);
+            self::assertStringContainsString('already declared', $diagnostics[0]->message);
+        }
     }
 
     public function testWorkspaceDiagnosticsTranslateToLspWireFormatRanges(): void
@@ -443,6 +476,165 @@ final class XphpDiagnosticsProviderTest extends TestCase
         self::assertSame('xphp.bound', $diagnostics[0]->code);
     }
 
+    public function testEditingADependencyBroadcastsDiagnosticsForOpenDependents(): void
+    {
+        // Box.xphp declares a bounded template; Use.xphp instantiates it with a
+        // type that violates the bound. Linting Box.xphp (e.g. the user is
+        // editing it) must re-publish Use.xphp's diagnostics WITHOUT the user
+        // touching Use.xphp -- that's the cross-file broadcast.
+        $workspace = new PhpactorWorkspace();
+        $transmitter = new TestMessageTransmitter();
+        $provider = $this->newBroadcastProvider($workspace, $transmitter);
+
+        $boxDoc = $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T: \Stringable> { public T $item; }
+        XPHP);
+        $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        $x = new Box<int>();
+        XPHP);
+
+        wait($provider->provideDiagnostics($boxDoc, (new CancellationTokenSource())->getToken()));
+
+        $published = self::publishedDiagnosticsFor($transmitter, '/Use.xphp');
+        self::assertCount(1, $published, 'expected exactly one publish for the dependent');
+        $diagnostics = array_values($published[0]['diagnostics']);
+        self::assertCount(1, $diagnostics);
+        self::assertSame('xphp.bound', $diagnostics[0]->code);
+    }
+
+    public function testUnchangedDependentIsNotRebroadcast(): void
+    {
+        // Linting the dependency twice with no change must publish the
+        // dependent's diagnostics only once (the signature guard).
+        $workspace = new PhpactorWorkspace();
+        $transmitter = new TestMessageTransmitter();
+        $provider = $this->newBroadcastProvider($workspace, $transmitter);
+
+        $boxDoc = $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T: \Stringable> { public T $item; }
+        XPHP);
+        $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        $x = new Box<int>();
+        XPHP);
+
+        $token = (new CancellationTokenSource())->getToken();
+        wait($provider->provideDiagnostics($boxDoc, $token));
+        wait($provider->provideDiagnostics($boxDoc, $token));
+
+        self::assertCount(
+            1,
+            self::publishedDiagnosticsFor($transmitter, '/Use.xphp'),
+            'an unchanged dependent must not be re-published',
+        );
+    }
+
+    public function testTheLintedDocumentIsNotBroadcastByTheProvider(): void
+    {
+        // The engine publishes the document being linted; the broadcast must
+        // NOT also publish it (that would double-publish the current file).
+        $workspace = new PhpactorWorkspace();
+        $transmitter = new TestMessageTransmitter();
+        $provider = $this->newBroadcastProvider($workspace, $transmitter);
+
+        $useDoc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        $x = new Box<int>();
+        XPHP);
+        $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T: \Stringable> { public T $item; }
+        XPHP);
+
+        wait($provider->provideDiagnostics($useDoc, (new CancellationTokenSource())->getToken()));
+
+        self::assertSame(
+            [],
+            self::publishedDiagnosticsFor($transmitter, '/Use.xphp'),
+            'the linted document must not be broadcast by the provider',
+        );
+    }
+
+    public function testBoundCheckUsesTheTypeArgDeclarationNearestTheLintedFile(): void
+    {
+        // Two packages declare the SAME FQN `App\Shared\Tag`, but only pkgA's
+        // implements \Stringable. The bound check on a file in pkgA must use
+        // pkgA's Tag (bound satisfied -> no diagnostic); the same instantiation
+        // in pkgB must use pkgB's Tag (bound violated -> diagnostic). This
+        // exercises the proximity-scoped hierarchy: each FQN's ancestry comes
+        // from its nearest declarer, not whichever copy was walked last.
+        $root = sys_get_temp_dir() . '/xphp-diag-proximity-' . bin2hex(random_bytes(6));
+        mkdir($root . '/pkgA', 0o755, true);
+        mkdir($root . '/pkgB', 0o755, true);
+        try {
+            $box = <<<'PHP'
+            <?php
+            namespace App\Shared;
+            class Box<T: \Stringable>
+            {
+                public function __construct(public T $item) {}
+            }
+            PHP;
+            file_put_contents($root . '/pkgA/Box.xphp', $box);
+            file_put_contents($root . '/pkgB/Box.xphp', $box);
+            file_put_contents($root . '/pkgA/Tag.xphp', <<<'PHP'
+            <?php
+            namespace App\Shared;
+            final class Tag implements \Stringable
+            {
+                public function __toString(): string { return 'tag'; }
+            }
+            PHP);
+            file_put_contents($root . '/pkgB/Tag.xphp', <<<'PHP'
+            <?php
+            namespace App\Shared;
+            final class Tag {}
+            PHP);
+
+            $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
+            $cache = new ParsedDocumentCache(new Analyzer($parser));
+            $workspace = new PhpactorWorkspace();
+            $fqnIndex = new FqnIndex($workspace, $cache, $parser, $root);
+            (new \XPHP\Lsp\Analyzer\ParsedDocumentCacheWarmer($fqnIndex, $cache, $workspace))->warmNow();
+
+            $useSource = "<?php\nnamespace App\\Shared;\n\$x = new Box<Tag>(new Tag());\n";
+            $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
+
+            $useA = $this->openDoc($workspace, 'file://' . $root . '/pkgA/Use.xphp', $useSource);
+            $diagsA = $this->codes(wait($provider->provideDiagnostics($useA, (new CancellationTokenSource())->getToken())));
+            self::assertNotContains('xphp.bound', $diagsA, 'pkgA Tag implements \Stringable -> no violation');
+
+            $useB = $this->openDoc($workspace, 'file://' . $root . '/pkgB/Use.xphp', $useSource);
+            $diagsB = $this->codes(wait($provider->provideDiagnostics($useB, (new CancellationTokenSource())->getToken())));
+            self::assertContains('xphp.bound', $diagsB, 'pkgB Tag does not implement \Stringable -> violation');
+        } finally {
+            foreach (['pkgA', 'pkgB'] as $pkg) {
+                array_map('unlink', glob($root . '/' . $pkg . '/*') ?: []);
+                @rmdir($root . '/' . $pkg);
+            }
+            @rmdir($root);
+        }
+    }
+
+    /**
+     * @param list<LspDiagnostic> $diagnostics
+     * @return list<string>
+     */
+    private function codes(mixed $diagnostics): array
+    {
+        $diagnostics = is_array($diagnostics) ? $diagnostics : [];
+        return array_values(array_map(static fn ($d): string => (string) $d->code, $diagnostics));
+    }
+
     /**
      * @return list<LspDiagnostic>
      */
@@ -472,5 +664,43 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $item = new TextDocumentItem($uri, 'xphp', 1, $text);
         $workspace->open($item);
         return $item;
+    }
+
+    private function newBroadcastProvider(
+        PhpactorWorkspace $workspace,
+        TestMessageTransmitter $transmitter,
+    ): XphpDiagnosticsProvider {
+        $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
+        $cache = new ParsedDocumentCache(new Analyzer($parser));
+        $clientApi = new ClientApi(new JsonRpcClient($transmitter, new DeferredResponseWatcher()));
+        return new XphpDiagnosticsProvider(
+            $cache,
+            new WorkspaceAnalyzer(),
+            $workspace,
+            new FqnIndex($workspace, $cache, $parser, ''),
+            $clientApi,
+        );
+    }
+
+    /**
+     * Collect the `textDocument/publishDiagnostics` notifications transmitted
+     * for a given URI, decoded into `{uri, version, diagnostics}` arrays.
+     *
+     * @return list<array{uri: string, version: ?int, diagnostics: list<LspDiagnostic>}>
+     */
+    private static function publishedDiagnosticsFor(TestMessageTransmitter $transmitter, string $uri): array
+    {
+        $out = [];
+        $filtered = $transmitter->filterByMethod('textDocument/publishDiagnostics');
+        while (($message = $filtered->shift()) !== null) {
+            if (!$message instanceof NotificationMessage) {
+                continue;
+            }
+            $params = $message->params;
+            if (($params['uri'] ?? null) === $uri) {
+                $out[] = $params;
+            }
+        }
+        return $out;
     }
 }

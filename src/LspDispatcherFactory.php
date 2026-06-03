@@ -182,6 +182,9 @@ final class LspDispatcherFactory implements DispatcherFactory
             new WorkspaceAnalyzer(),
             $workspace,
             $fqnIndex,
+            // Push path: lets a workspace pass re-publish diagnostics for the
+            // dependents of the edited file (cross-file broadcast).
+            $clientApi,
         );
 
         $diagnosticsEngine = new DiagnosticsEngine(
@@ -279,6 +282,7 @@ final class LspDispatcherFactory implements DispatcherFactory
                 $fqnIndex,
                 new ReferenceFinder($workspace, $cache, $fqnIndex, $xphpParser, $reflector, $genericResolver),
                 $phpDefinitionResolver,
+                $genericResolver,
             ),
             new XphpTypeDefinitionHandler($phpDefinitionResolver),
             new XphpCompletionHandler($workspace, $workspaceSymbols, $phpCompletionResolver, $fqnIndex, $reflector),
@@ -290,6 +294,7 @@ final class LspDispatcherFactory implements DispatcherFactory
                 new ImportCodeActionProvider($fqnIndex, $cache),
                 new DiagnosticCodeActionProvider(),
                 new OptimizeImportsCodeActionProvider($cache),
+                new \XPHP\Lsp\Resolver\BoundErrorCodeActionProvider(),
             ),
             new XphpCodeActionResolveHandler(),
             new XphpDocumentSymbolHandler($workspace, $cache),
@@ -309,6 +314,8 @@ final class LspDispatcherFactory implements DispatcherFactory
             new XphpDocumentHighlightHandler(
                 $workspace,
                 new ReferenceFinder($workspace, $cache, $fqnIndex, $xphpParser, $reflector, $genericResolver),
+                $cache,
+                new \XPHP\Lsp\Resolver\DocumentHighlightKindResolver(),
             ),
             new XphpRenameHandler(
                 $workspace,
@@ -366,6 +373,9 @@ final class LspDispatcherFactory implements DispatcherFactory
             ]),
             new ShutdownMiddleware($eventDispatcher),
             new ResponseHandlingMiddleware($responseWatcher),
+            // Anchor FQN resolution to each request's textDocument so duplicate
+            // FQNs resolve to the declaration nearest the file being worked on.
+            new \XPHP\Lsp\Dispatcher\OriginTrackingMiddleware($fqnIndex),
             new CancellationMiddleware($runner),
             new HandlerMiddleware($runner),
         );

@@ -40,7 +40,11 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
  *
  * Open-doc URIs win over filesystem paths when they collide on the same
  * FQN: a generic class with unsaved edits in the editor reflects the
- * editor state, not the on-disk state.
+ * editor state, not the on-disk state.  Among filesystem declarations of
+ * the SAME FQN (common in monorepo / fixture trees), resolution picks the
+ * one nearest the requesting document -- see {@see selectDecl} /
+ * {@see nearestDecl} -- so duplicate FQNs no longer require excluding whole
+ * subtrees from the walk (the prior `test/fixture` skip is gone).
  *
  * Filesystem walk lifecycle: built lazily on first call, retained for the
  * LSP session.  A file watcher (`workspace/didChangeWatchedFiles`) is the
@@ -58,23 +62,21 @@ final class FqnIndex
     private const SKIP_DIRS = ['.git', 'vendor', 'node_modules', 'var', 'build'];
 
     /**
-     * Path components skipped when their immediate parent matches.  Captures
-     * test-fixture trees that declare classes with the same FQN as real
-     * source -- a common Composer-style layout where running the LSP over
-     * the xphp repo itself surfaced wrong-file GTD targets in prod traces
-     * (Phase 2.2 / 2.3).
-     *
-     * Format: `['parentBasename' => ['skippedChild', ...]]`
-     */
-    private const SKIP_NESTED = [
-        'test' => ['fixture', 'fixtures'],
-        'tests' => ['fixture', 'fixtures'],
-    ];
-
-    /**
      * @var array<string, string>|null  FQN -> absolute filesystem path; null until first build.
      */
     private ?array $filesystemMap = null;
+
+    /**
+     * @var array<string, list<array{path: string, kind: string, line: int, char: int, genericParams: list<string>, bounds: list<?string>}>>|null
+     *   FQN -> EVERY filesystem declaration of that FQN, one record per
+     *   declaring file. The authoritative multi-path map that powers
+     *   proximity-aware resolution: when several files declare the same FQN
+     *   (common in monorepo fixture trees), resolution picks the record
+     *   nearest the requesting document. The legacy single-value maps above
+     *   are derived views (global shortest-path winner) for origin-less
+     *   consumers. Null until first build.
+     */
+    private ?array $filesystemDecls = null;
 
     /**
      * @var array<string, string>|null  FQN -> "class" or "function" kind for the filesystem entries.
@@ -145,6 +147,16 @@ final class FqnIndex
      */
     private ?array $typeParamFqns = null;
 
+    /**
+     * The document a resolution is being performed "on behalf of", used as the
+     * proximity anchor when several files declare the same FQN. Set once per
+     * request by {@see \XPHP\Lsp\Dispatcher\OriginTrackingMiddleware} from the
+     * request's `textDocument.uri`. The deep resolver chains and the
+     * worse-reflection locator carry no document context of their own, so this
+     * holder is how proximity reaches them. Null = no anchor (global tiebreak).
+     */
+    private ?string $currentOrigin = null;
+
     public function __construct(
         private readonly PhpactorWorkspace $workspace,
         private readonly ParsedDocumentCache $cache,
@@ -154,10 +166,24 @@ final class FqnIndex
     }
 
     /**
+     * Set the proximity anchor for subsequent resolutions (the document the
+     * current request is for), or null to clear it. Cheap; called per request.
+     */
+    public function withOrigin(?string $uri): void
+    {
+        $this->currentOrigin = $uri;
+    }
+
+    public function currentOrigin(): ?string
+    {
+        return $this->currentOrigin;
+    }
+
+    /**
      * Path to the declaration site for `$fqn`, or null if no declaration
      * is known.  Open-doc URIs win over filesystem paths.
      */
-    public function pathFor(string $fqn): ?string
+    public function pathFor(string $fqn, ?string $origin = null): ?string
     {
         $needle = ltrim($fqn, '\\');
         if ($needle === '') {
@@ -167,8 +193,7 @@ final class FqnIndex
         if ($uri !== null) {
             return $uri;
         }
-        $filesystemMap = $this->filesystemMap();
-        return $filesystemMap[$needle] ?? null;
+        return $this->selectDecl($needle, $origin)['path'] ?? null;
     }
 
     /**
@@ -181,7 +206,7 @@ final class FqnIndex
      * function call sites (`identity<User>(...)`).  Methods reuse
      * `classLikeFor()` -> `findMethod` instead.
      */
-    public function functionFor(string $fqn): ?Function_
+    public function functionFor(string $fqn, ?string $origin = null): ?Function_
     {
         $needle = ltrim($fqn, '\\');
         if ($needle === '') {
@@ -191,11 +216,11 @@ final class FqnIndex
         if ($hit !== null) {
             return $hit;
         }
-        $filesystemMap = $this->filesystemMap();
-        if (!isset($filesystemMap[$needle])) {
+        $path = $this->selectDecl($needle, $origin)['path'] ?? null;
+        if ($path === null) {
             return null;
         }
-        return $this->functionFromFile($filesystemMap[$needle], $needle);
+        return $this->functionFromFile($path, $needle);
     }
 
     /**
@@ -206,7 +231,7 @@ final class FqnIndex
      * (tolerant) so attributes are still attached even on partially
      * malformed sources.
      */
-    public function classLikeFor(string $fqn): ?ClassLike
+    public function classLikeFor(string $fqn, ?string $origin = null): ?ClassLike
     {
         $needle = ltrim($fqn, '\\');
         if ($needle === '') {
@@ -219,11 +244,11 @@ final class FqnIndex
             return $hit;
         }
 
-        $filesystemMap = $this->filesystemMap();
-        if (!isset($filesystemMap[$needle])) {
+        $path = $this->selectDecl($needle, $origin)['path'] ?? null;
+        if ($path === null) {
             return null;
         }
-        return $this->classLikeFromFile($filesystemMap[$needle], $needle);
+        return $this->classLikeFromFile($path, $needle);
     }
 
     /**
@@ -346,6 +371,7 @@ final class FqnIndex
     public function invalidateFilesystem(): void
     {
         $this->filesystemMap = null;
+        $this->filesystemDecls = null;
         $this->filesystemKinds = null;
         $this->filesystemGenericParams = null;
         $this->filesystemFuncMethodGenericParams = null;
@@ -496,7 +522,7 @@ final class FqnIndex
      *
      * @return list<?string>|null
      */
-    public function boundsForGenericClass(string $fqn): ?array
+    public function boundsForGenericClass(string $fqn, ?string $origin = null): ?array
     {
         $needle = ltrim($fqn, '\\');
         if ($needle === '') {
@@ -513,7 +539,10 @@ final class FqnIndex
                 }
             }
         }
-        return $this->filesystemGenericBoundsMap()[$needle] ?? null;
+        $decl = $this->selectDecl($needle, $origin);
+        // Empty bounds == not a generic class (the per-param bound list always
+        // has >=1 slot for a real generic); keep the null contract for those.
+        return ($decl === null || $decl['bounds'] === []) ? null : $decl['bounds'];
     }
 
     /**
@@ -598,7 +627,7 @@ final class FqnIndex
      *
      * @return array{uri: string, line: int, char: int, short: string}|null
      */
-    public function locationForFqn(string $fqn): ?array
+    public function locationForFqn(string $fqn, ?string $origin = null): ?array
     {
         $needle = ltrim($fqn, '\\');
         if ($needle === '') {
@@ -624,20 +653,96 @@ final class FqnIndex
                 ];
             }
         }
-        $symbols = $this->filesystemSymbols();
-        if (!isset($symbols[$needle])) {
-            return null;
-        }
-        $path = $this->filesystemMap()[$needle] ?? null;
-        if ($path === null) {
+        $decl = $this->selectDecl($needle, $origin);
+        if ($decl === null) {
             return null;
         }
         return [
-            'uri' => 'file://' . $path,
-            'line' => $symbols[$needle]['line'],
-            'char' => $symbols[$needle]['char'],
+            'uri' => 'file://' . $decl['path'],
+            'line' => $decl['line'],
+            'char' => $decl['char'],
             'short' => self::shortOf($needle),
         ];
+    }
+
+    /**
+     * Locate a method declaration's name span by (class FQN, method name).
+     * Mirrors {@see locationForFqn} but resolves a member: finds the class's
+     * ClassLike (open doc first, then filesystem), the ClassMethod by name, and
+     * maps its name-node offset through the document's ByteOffsetMap. This is the
+     * xphp-native path go-to-definition uses for generic method calls -- the
+     * receiver class (e.g. `Collection<User>::first`) carries xphp syntax
+     * (`T[]`, reified `T`) that worse-reflection can't reliably reflect.
+     *
+     * Returns null when the class isn't found or declares no such method
+     * directly (inherited methods are not yet resolved).
+     *
+     * @return array{uri: string, line: int, char: int, short: string}|null
+     */
+    public function methodLocation(string $classFqn, string $methodName, ?string $origin = null): ?array
+    {
+        $needle = ltrim($classFqn, '\\');
+        if ($needle === '' || $methodName === '') {
+            return null;
+        }
+
+        // Open-doc first: live view of unsaved edits beats the on-disk copy.
+        foreach ($this->workspace as $uri => $item) {
+            $result = $this->cache->getOrParse($uri, $item->version, $item->text);
+            if ($result->ast === null) {
+                continue;
+            }
+            $classLike = self::findClassLikeInAst($result->ast, $needle);
+            if ($classLike === null) {
+                continue;
+            }
+            $startByte = self::methodNameStartByte($classLike, $methodName);
+            if ($startByte === null) {
+                return null;
+            }
+            $origByte = $result->byteOffsetMap->toOriginal($startByte);
+            [$line, $char] = self::byteToLineChar($item->text, $origByte);
+            return ['uri' => (string) $uri, 'line' => $line, 'char' => $char, 'short' => $methodName];
+        }
+
+        $path = $this->selectDecl($needle, $origin)['path'] ?? null;
+        if ($path === null) {
+            return null;
+        }
+        $source = @file_get_contents($path);
+        if ($source === false) {
+            return null;
+        }
+        try {
+            $parsed = $this->parser->parseTolerantWithMap($source);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($parsed === null || $parsed->ast === null) {
+            return null;
+        }
+        $classLike = self::findClassLikeInAst($parsed->ast, $needle);
+        if ($classLike === null) {
+            return null;
+        }
+        $startByte = self::methodNameStartByte($classLike, $methodName);
+        if ($startByte === null) {
+            return null;
+        }
+        $origByte = $parsed->byteOffsetMap->toOriginal($startByte);
+        [$line, $char] = self::byteToLineChar($source, $origByte);
+        return ['uri' => 'file://' . $path, 'line' => $line, 'char' => $char, 'short' => $methodName];
+    }
+
+    private static function methodNameStartByte(ClassLike $classLike, string $methodName): ?int
+    {
+        foreach ($classLike->getMethods() as $method) {
+            if (strcasecmp($method->name->toString(), $methodName) === 0) {
+                $start = $method->name->getStartFilePos();
+                return $start >= 0 ? $start : null;
+            }
+        }
+        return null;
     }
 
     /**
@@ -694,46 +799,53 @@ final class FqnIndex
         return $sorted;
     }
 
-    public function locationByShortName(string $shortName): ?array
+    public function locationByShortName(string $shortName, ?string $origin = null): ?array
     {
         if ($shortName === '') {
             return null;
         }
         $tailSuffix = '\\' . $shortName;
         $tailLen = strlen($tailSuffix);
-        $openDocHit = null;
-        $fsCandidates = [];
+
+        // Open-doc wins outright. allDeclarations yields open docs first, then
+        // filesystem ('file://' prefix); stop scanning once we reach the
+        // filesystem section (open docs are exhausted).
         foreach ($this->allDeclarations() as $hit) {
-            $fqn = $hit['fqn'];
-            $matches = $fqn === $shortName
-                || (strlen($fqn) > $tailLen && substr($fqn, -$tailLen) === $tailSuffix);
-            if (!$matches) {
-                continue;
-            }
             if (str_starts_with($hit['uri'], 'file://')) {
-                $fsCandidates[] = $hit;
-            } elseif ($openDocHit === null) {
-                $openDocHit = $hit;
+                break;
+            }
+            $fqn = $hit['fqn'];
+            if ($fqn === $shortName
+                || (strlen($fqn) > $tailLen && substr($fqn, -$tailLen) === $tailSuffix)
+            ) {
+                return [
+                    'uri' => $hit['uri'],
+                    'line' => $hit['line'],
+                    'char' => $hit['char'],
+                    'short' => $shortName,
+                ];
             }
         }
-        if ($openDocHit !== null) {
-            return [
-                'uri' => $openDocHit['uri'],
-                'line' => $openDocHit['line'],
-                'char' => $openDocHit['char'],
-                'short' => $shortName,
-            ];
+
+        // Filesystem candidates: EVERY declaring path across matching FQNs,
+        // so a duplicated short name resolves to the declaration nearest the
+        // requesting document (or shortest path when origin is null).
+        $candidates = [];
+        foreach ($this->filesystemDeclsMap() as $fqn => $records) {
+            if ($fqn === $shortName
+                || (strlen($fqn) > $tailLen && substr($fqn, -$tailLen) === $tailSuffix)
+            ) {
+                foreach ($records as $record) {
+                    $candidates[] = $record;
+                }
+            }
         }
-        if ($fsCandidates === []) {
+        $best = self::nearestDecl($candidates, $origin);
+        if ($best === null) {
             return null;
         }
-        usort($fsCandidates, static function (array $a, array $b): int {
-            $byLength = strlen($a['uri']) <=> strlen($b['uri']);
-            return $byLength !== 0 ? $byLength : strcmp($a['uri'], $b['uri']);
-        });
-        $best = $fsCandidates[0];
         return [
-            'uri' => $best['uri'],
+            'uri' => 'file://' . $best['path'],
             'line' => $best['line'],
             'char' => $best['char'],
             'short' => $shortName,
@@ -942,6 +1054,97 @@ final class FqnIndex
     }
 
     /**
+     * @return array<string, list<array{path: string, kind: string, line: int, char: int, genericParams: list<string>, bounds: list<?string>}>>
+     */
+    private function filesystemDeclsMap(): array
+    {
+        if ($this->filesystemDecls === null) {
+            $this->buildFilesystemIndex();
+        }
+        return $this->filesystemDecls ?? [];
+    }
+
+    /**
+     * Pick the filesystem declaration of `$fqn` nearest the requesting
+     * document. When `$origin` is null (no requesting context), this reduces
+     * to the global tiebreak (shortest path, then alphabetical) -- preserving
+     * the index's pre-proximity behavior for origin-less callers.
+     *
+     * @return array{path: string, kind: string, line: int, char: int, genericParams: list<string>, bounds: list<?string>}|null
+     */
+    private function selectDecl(string $fqn, ?string $origin): ?array
+    {
+        // An explicit origin (passed by a caller that has it) wins; otherwise
+        // fall back to the per-request anchor set by the middleware.
+        $effective = $origin ?? $this->currentOrigin;
+        return self::nearestDecl($this->filesystemDeclsMap()[$fqn] ?? [], $effective);
+    }
+
+    /**
+     * Among candidate declaration records, return the one nearest `$origin`
+     * (the requesting document URI/path). Proximity = number of leading path
+     * components shared; ties (and a null origin) fall back to shortest path,
+     * then alphabetical, for deterministic resolution.
+     *
+     * @param list<array{path: string, kind: string, line: int, char: int, genericParams: list<string>, bounds: list<?string>}> $records
+     * @return array{path: string, kind: string, line: int, char: int, genericParams: list<string>, bounds: list<?string>}|null
+     */
+    private static function nearestDecl(array $records, ?string $origin): ?array
+    {
+        if ($records === []) {
+            return null;
+        }
+        $originPath = $origin === null ? null : self::stripScheme($origin);
+        $best = null;
+        $bestShared = -1;
+        foreach ($records as $record) {
+            $shared = $originPath === null ? 0 : self::sharedPrefixComponents($originPath, $record['path']);
+            if ($best === null
+                || $shared > $bestShared
+                || ($shared === $bestShared && self::pathTiebreak($record['path'], $best['path']) < 0)
+            ) {
+                $best = $record;
+                $bestShared = $shared;
+            }
+        }
+        return $best;
+    }
+
+    /**
+     * Count of leading directory components two absolute paths share. Higher
+     * means "in the same subtree" -- the proximity signal for resolution.
+     */
+    private static function sharedPrefixComponents(string $a, string $b): int
+    {
+        $aParts = explode('/', $a);
+        $bParts = explode('/', $b);
+        // Compare directory components only (drop the filename on each side).
+        array_pop($aParts);
+        array_pop($bParts);
+        $n = min(count($aParts), count($bParts));
+        $shared = 0;
+        for ($i = 0; $i < $n; $i++) {
+            if ($aParts[$i] !== $bParts[$i]) {
+                break;
+            }
+            $shared++;
+        }
+        return $shared;
+    }
+
+    /** Deterministic tiebreak: shorter path first, then alphabetical. */
+    private static function pathTiebreak(string $a, string $b): int
+    {
+        $byLength = strlen($a) <=> strlen($b);
+        return $byLength !== 0 ? $byLength : strcmp($a, $b);
+    }
+
+    private static function stripScheme(string $uri): string
+    {
+        return str_starts_with($uri, 'file://') ? substr($uri, strlen('file://')) : $uri;
+    }
+
+    /**
      * @return array<string, string>  FQN -> "class" or "function"
      */
     private function filesystemKinds(): array
@@ -988,6 +1191,7 @@ final class FqnIndex
     private function buildFilesystemIndex(): void
     {
         $map = [];
+        $decls = [];
         $kinds = [];
         $genericParams = [];
         $funcMethodGenericParams = [];
@@ -1000,6 +1204,7 @@ final class FqnIndex
                 $this->rootPath,
             ));
             $this->filesystemMap = $map;
+            $this->filesystemDecls = $decls;
             $this->filesystemKinds = $kinds;
             $this->filesystemGenericParams = $genericParams;
             $this->filesystemFuncMethodGenericParams = $funcMethodGenericParams;
@@ -1035,18 +1240,37 @@ final class FqnIndex
             $ast = $parsed->ast;
             $offsets = $parsed->byteOffsetMap;
 
+            // Per-file declaration records, joined by FQN across the
+            // individual collector walks. Seeded from collectDeclarations
+            // (classes + free functions) and enriched with the finer symbol
+            // kind/position + generic params/bounds where available.
+            $fileDecls = [];
             foreach (self::collectDeclarations($ast) as $fqn => $kind) {
                 $map[$fqn] = $file->getPathname();
                 $kinds[$fqn] = $kind;
+                $fileDecls[$fqn] = [
+                    'path' => $file->getPathname(),
+                    'kind' => $kind,
+                    'line' => 0,
+                    'char' => 0,
+                    'genericParams' => [],
+                    'bounds' => [],
+                ];
             }
             foreach (self::collectGenericClasses($ast) as $fqn => $paramNames) {
                 $genericParams[$fqn] = $paramNames;
+                if (isset($fileDecls[$fqn])) {
+                    $fileDecls[$fqn]['genericParams'] = $paramNames;
+                }
             }
             foreach (self::collectGenericFunctionsAndMethods($ast) as $fqn => $paramNames) {
                 $funcMethodGenericParams[$fqn] = $paramNames;
             }
             foreach (self::collectGenericClassBounds($ast) as $fqn => $bounds) {
                 $genericBounds[$fqn] = $bounds;
+                if (isset($fileDecls[$fqn])) {
+                    $fileDecls[$fqn]['bounds'] = $bounds;
+                }
             }
             foreach (self::collectSymbolHits($ast) as $hit) {
                 $origByte = $offsets->toOriginal($hit['startByte']);
@@ -1056,6 +1280,14 @@ final class FqnIndex
                     'line' => $line,
                     'char' => $char,
                 ];
+                if (isset($fileDecls[$hit['fqn']])) {
+                    $fileDecls[$hit['fqn']]['kind'] = $hit['kind'];
+                    $fileDecls[$hit['fqn']]['line'] = $line;
+                    $fileDecls[$hit['fqn']]['char'] = $char;
+                }
+            }
+            foreach ($fileDecls as $fqn => $record) {
+                $decls[$fqn][] = $record;
             }
         }
 
@@ -1068,6 +1300,7 @@ final class FqnIndex
         ));
 
         $this->filesystemMap = $map;
+        $this->filesystemDecls = $decls;
         $this->filesystemKinds = $kinds;
         $this->filesystemGenericParams = $genericParams;
         $this->filesystemFuncMethodGenericParams = $funcMethodGenericParams;
@@ -1108,12 +1341,6 @@ final class FqnIndex
                 }
                 $name = $file->getFilename();
                 if (in_array($name, self::SKIP_DIRS, true)) {
-                    return false;
-                }
-                $parent = basename($file->getPath());
-                if (isset(self::SKIP_NESTED[$parent])
-                    && in_array($name, self::SKIP_NESTED[$parent], true)
-                ) {
                     return false;
                 }
                 return true;

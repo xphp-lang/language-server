@@ -21,6 +21,7 @@ use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Lsp\Resolver\GenericResolver;
 use XPHP\Lsp\Resolver\PhpDefinitionResolver;
 use XPHP\Lsp\Resolver\ReferenceFinder;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -55,6 +56,7 @@ final class XphpDefinitionHandler implements Handler, CanRegisterCapabilities
         private readonly FqnIndex $fqnIndex,
         private readonly ReferenceFinder $referenceFinder,
         private readonly ?PhpDefinitionResolver $phpResolver = null,
+        private readonly ?GenericResolver $genericResolver = null,
     ) {
     }
 
@@ -149,6 +151,24 @@ final class XphpDefinitionHandler implements Handler, CanRegisterCapabilities
         if ($identifier !== null) {
             $shortName = self::lastSegment($identifier);
             $location = self::locationToLsp($this->fqnIndex->locationByShortName($shortName));
+            if ($location !== null) {
+                return new Success($location);
+            }
+        }
+
+        // Path 2.5: cursor on a generic method-call name (`first` in
+        // `$users->first()` where `$users = new Collection<User>()`).  The
+        // receiver's class carries xphp generic syntax (`T[]`, reified `T`) that
+        // worse-reflection can't reflect, so Path 3 below misses it.  Resolve the
+        // method declaration xphp-natively: GenericResolver infers the receiver
+        // class (the same inference inlay hints use) and FqnIndex locates the
+        // method member.  Plain (non-generic) receivers fall through to Path 3,
+        // which already handles them.
+        if ($this->genericResolver !== null) {
+            $location = self::locationToLsp($this->genericResolver->resolveMethodDeclarationAt(
+                $params->textDocument->uri,
+                $offset,
+            ));
             if ($location !== null) {
                 return new Success($location);
             }

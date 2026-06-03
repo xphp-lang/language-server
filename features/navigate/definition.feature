@@ -67,7 +67,6 @@ Feature: Go to definition
     Then the response points to "Models/User.xphp"
     And the target range covers the "User" class name
 
-  @todo
   Scenario: Jump through a generic method call to its declaration
     When I request "textDocument/definition" on "first" at line 10 of "Use.xphp"
     Then the response points to "Containers/Collection.xphp"

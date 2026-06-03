@@ -256,23 +256,30 @@ final class FqnIndexTest extends TestCase
         self::assertNull($index->locationForFqn('Nope\\Mystery'));
     }
 
-    public function testFilesystemWalkSkipsNestedTestFixturesDir(): void
+    public function testFilesystemWalkIndexesNestedTestFixturesAndResolvesByProximity(): void
     {
-        // Phase 3 polish: `test/fixture/...` declarations were polluting
-        // workspace symbol search + closed-file GTD in the xphp repo
-        // itself (confirmed in prod traces 2.2 + 2.3).  The walk now
-        // skips `fixture` / `fixtures` when nested under a `test` /
-        // `tests` directory.
+        // Previously `test/fixture/...` was excluded from the walk -- a blunt
+        // guard against duplicate-FQN pollution. Fixture trees are now indexed;
+        // the same FQN declared in several places is disambiguated by proximity
+        // to the requesting document instead of being hidden.
         $this->writeFile('src/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $this->writeFile('test/fixture/source/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $this->writeFile('test/fixtures/another/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $this->writeFile('tests/fixture/yetmore/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-
+        $this->writeFile('test/fixture/demoA/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
         $index = $this->index(new PhpactorWorkspace());
 
-        $location = $index->locationForFqn('App\\Models\\User');
-        self::assertNotNull($location);
-        self::assertSame('file://' . $this->root . '/src/User.xphp', $location['uri']);
+        // The fixture-tree declaration is indexed and reachable when a file in
+        // its own subtree asks for it.
+        self::assertSame(
+            $this->root . '/test/fixture/demoA/User.xphp',
+            $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/test/fixture/demoA/Use.xphp'),
+        );
+        // A request from src resolves to the src copy (nearest to it).
+        self::assertSame(
+            $this->root . '/src/User.xphp',
+            $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/src/Use.xphp'),
+        );
+        // With no requesting context, the deterministic shortest-path tiebreak
+        // still applies.
+        self::assertSame($this->root . '/src/User.xphp', $index->pathFor('App\\Models\\User'));
     }
 
     public function testFilesystemWalkDoesNotSkipNonTestFixtureDirs(): void
@@ -577,18 +584,11 @@ final class FqnIndexTest extends TestCase
         self::assertSame(['Stringable'], $index->boundsForGenericClass('Bare'));
     }
 
-    public function testFilesystemWalkSkipsVendorTestFixtureSubdirs(): void
+    public function testFilesystemWalkIndexesTestFixtureSubdirs(): void
     {
-        // Pins the `iterator()` SKIP_NESTED check (line ~1031).
-        // Without a fixture that PLACES files inside the
-        // skip-listed nested dirs, `FalseValue` (return true instead
-        // of false) and `ReturnRemoval` (drop the early `return`)
-        // survive because the walker never reaches the branch.
-        //
-        // SKIP_NESTED currently includes `test/fixture/source` and
-        // `test/fixtures`.  Both should be invisible to the FQN
-        // index even when they contain .xphp files declaring real
-        // classes.
+        // The walk no longer prunes `test/fixture` / `test/fixtures`: those
+        // declarations are indexed like any other (duplicate FQNs across them
+        // are disambiguated by proximity at resolution time, not by exclusion).
         $this->writeFile('src/Real.xphp', "<?php\nnamespace App;\nclass Real {}\n");
         $this->writeFile('test/fixture/source/Shadow.xphp', "<?php\nnamespace App;\nclass Shadow {}\n");
         $this->writeFile('test/fixtures/Phantom.xphp', "<?php\nnamespace App;\nclass Phantom {}\n");
@@ -597,16 +597,8 @@ final class FqnIndexTest extends TestCase
         $fqns = $index->allClassFqns();
 
         self::assertContains('App\\Real', $fqns);
-        self::assertNotContains(
-            'App\\Shadow',
-            $fqns,
-            'test/fixture/source nested dir must be skipped by iterator()',
-        );
-        self::assertNotContains(
-            'App\\Phantom',
-            $fqns,
-            'test/fixtures nested dir must be skipped by iterator()',
-        );
+        self::assertContains('App\\Shadow', $fqns, 'test/fixture/source declarations are now indexed');
+        self::assertContains('App\\Phantom', $fqns, 'test/fixtures declarations are now indexed');
     }
 
     public function testPublicLookupApisAcceptLeadingBackslashForm(): void
@@ -826,6 +818,70 @@ final class FqnIndexTest extends TestCase
         self::assertFalse($index->isBareBuiltinFunctionFqn(
             'App\\Demos\\xphp_test_user_func_global',
         ));
+    }
+
+    public function testResolvesDuplicateFqnByProximityToOrigin(): void
+    {
+        // Two packages declare the SAME FQN. Resolution must pick the copy in
+        // the requesting file's own package (longest shared path prefix).
+        $this->writeFile('pkgA/src/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->writeFile('pkgB/src/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $index = $this->index(new PhpactorWorkspace());
+
+        $fromA = $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/pkgA/Demo.xphp');
+        $fromB = $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/pkgB/Demo.xphp');
+
+        self::assertSame($this->root . '/pkgA/src/User.xphp', $fromA);
+        self::assertSame($this->root . '/pkgB/src/User.xphp', $fromB);
+    }
+
+    public function testNullOriginFallsBackToShortestPathTiebreak(): void
+    {
+        // With no requesting context, the deterministic global tiebreak
+        // (shortest path) applies -- preserving pre-proximity behavior.
+        $this->writeFile('a/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->writeFile('deeper/path/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $index = $this->index(new PhpactorWorkspace());
+
+        self::assertSame($this->root . '/a/User.xphp', $index->pathFor('App\\Models\\User'));
+    }
+
+    public function testLocationForFqnReturnsNearestDeclarationsPosition(): void
+    {
+        // The two copies put the class name on different lines; proximity must
+        // return BOTH the near file's URI AND its identifier position.
+        $this->writeFile('pkgA/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->writeFile('pkgB/User.xphp', "<?php\n\n\nnamespace App\\Models;\nclass User {}\n");
+        $index = $this->index(new PhpactorWorkspace());
+
+        $locA = $index->locationForFqn('App\\Models\\User', 'file://' . $this->root . '/pkgA/Use.xphp');
+        self::assertNotNull($locA);
+        self::assertSame('file://' . $this->root . '/pkgA/User.xphp', $locA['uri']);
+        self::assertSame(2, $locA['line']);
+
+        $locB = $index->locationForFqn('App\\Models\\User', 'file://' . $this->root . '/pkgB/Use.xphp');
+        self::assertNotNull($locB);
+        self::assertSame('file://' . $this->root . '/pkgB/User.xphp', $locB['uri']);
+        self::assertSame(4, $locB['line']);
+    }
+
+    public function testOpenDocStillWinsRegardlessOfProximity(): void
+    {
+        // An open buffer beats any on-disk copy, even a nearer one.
+        $this->writeFile('pkgA/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            'file:///elsewhere/User.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App\\Models;\nclass User {}\n",
+        ));
+        $index = $this->index($workspace);
+
+        self::assertSame(
+            'file:///elsewhere/User.xphp',
+            $index->pathFor('App\\Models\\User', 'file://' . $this->root . '/pkgA/Use.xphp'),
+        );
     }
 
     private function index(PhpactorWorkspace $workspace): FqnIndex

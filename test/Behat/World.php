@@ -79,12 +79,65 @@ final class World
     {
         if ($this->tester === null) {
             $this->tester = new LanguageServerTester(
-                new LspDispatcherFactory(),
+                // debounce 0: the push-mode diagnostics engine publishes as soon
+                // as the cooperative loop is pumped (see pumpLoop / published
+                // diagnostics), so push scenarios stay deterministic. Pull-mode
+                // scenarios don't touch the engine, so this is a no-op for them.
+                new LspDispatcherFactory(diagnosticsDebounceMs: 0),
                 new InitializeParams(new ClientCapabilities()),
             );
             $this->tester->initialize();
         }
         return $this->tester;
+    }
+
+    // ---- push-mode diagnostics (cross-file broadcast) ----------------------
+
+    /** Start the push-mode diagnostics engine service if it isn't already running. */
+    public function startDiagnosticsService(): void
+    {
+        $services = $this->server()->services();
+        if (!in_array('diagnostics', $services->listRunning(), true)) {
+            $services->start('diagnostics');
+        }
+    }
+
+    /** Send a real textDocument/didChange for an already-open fixture. */
+    public function changeFile(string $uri, string $source): void
+    {
+        $this->sources[$uri] = $source;
+        $this->server()->textDocument()->update($uri, $source);
+    }
+
+    /**
+     * Advance the Amp event loop a bounded number of ticks so queued engine
+     * work (debounced lint + publish + broadcast) runs to completion.
+     */
+    public function pumpLoop(int $ticks = 1): void
+    {
+        for ($i = 0; $i < $ticks; $i++) {
+            \Amp\Promise\wait(\Amp\delay(1));
+        }
+    }
+
+    /**
+     * Non-destructive snapshot of the `textDocument/publishDiagnostics`
+     * notifications transmitted for a URI, newest last. Each entry is the
+     * notification's params (`{uri, version, diagnostics}`).
+     *
+     * @return list<array{uri: string, version: ?int, diagnostics: array}>
+     */
+    public function publishedDiagnostics(string $uri): array
+    {
+        $out = [];
+        $filtered = $this->server()->transmitter()->filterByMethod('textDocument/publishDiagnostics');
+        while (($message = $filtered->shift()) !== null) {
+            $params = $message->params ?? null;
+            if (is_array($params) && ($params['uri'] ?? null) === $uri) {
+                $out[] = $params;
+            }
+        }
+        return $out;
     }
 
     // ---- position / fixture helpers ---------------------------------------
