@@ -87,3 +87,38 @@ build/phar: $(BOX_PHAR)
 	php -d phar.readonly=0 var/box.phar compile --no-interaction
 	composer install --quiet --no-interaction
 	@echo "==> Built $$(ls -lh var/xphp-lsp.phar | awk '{print $$5, $$9}')"
+
+# Behat lives in an isolated tooling install (tools/behat) because Behat 3.x
+# caps symfony/console at ^7 while the root project pins ^8 via xphp-lang/xphp.
+# Its files-autoload pulls in the root autoloader so the harness resolves
+# XPHP\Lsp\* classes. Scenarios drive the REAL language server end-to-end via
+# phpactor's LanguageServerTester (the production LspDispatcherFactory + full
+# middleware stack); deferred behavior is tagged @todo and skipped. This target
+# is deliberately NOT part of the `test/unit` gate.
+# The warmer's stderr chatter is silenced from tools/behat/bootstrap.php
+# (putenv XPHP_LSP_QUIET=1), since shell env-prefixes don't propagate through
+# this project's containerized `php` proxy.
+# memory_limit=-1: the first scenario builds the worse-reflection stub map
+# (peaks ~512M, same as the PHPUnit handler tests), which OOMs under the default
+# CLI limit on a cold cache (e.g. in CI).
+BEHAT_BIN := tools/behat/vendor/bin/behat
+BEHAT := php -d error_reporting='E_ALL & ~E_DEPRECATED' -d memory_limit=-1 $(BEHAT_BIN)
+BEHAT_FLAGS := -c behat.dist.yml --colors
+
+$(BEHAT_BIN):
+	composer install --working-dir=tools/behat --quiet
+
+.PHONY: test/behat
+test/behat: $(BEHAT_BIN)
+	$(BEHAT) $(BEHAT_FLAGS)
+
+# Each feature file runs in its own process. Safe because every scenario builds
+# its own in-memory workspace -- no shared files/DB/ports. The one shared
+# resource is the read-only PHP-stubs cache; the pre-warm run below populates it
+# once (sequentially) so the parallel fan-out only ever reads it.
+.PHONY: test/behat/parallel
+test/behat/parallel: $(BEHAT_BIN)
+	@echo "==> warming shared stub cache"
+	@$(BEHAT) $(BEHAT_FLAGS) features/navigate/definition.feature >/dev/null 2>&1 || true
+	find features -name '*.feature' | xargs -P 4 -I{} \
+	  php -d error_reporting='E_ALL & ~E_DEPRECATED' -d memory_limit=-1 $(BEHAT_BIN) $(BEHAT_FLAGS) {}

@@ -1,0 +1,25 @@
+default:
+    # Deferred behavior is written as @todo scenarios that document the desired
+    # outcome but are skipped, so the suite stays green on what's expected to work.
+    gherkin:
+        filters:
+            tags: '~@todo'
+    # Registers WorldArgumentResolver so the per-scenario World is
+    # constructor-injected into every context (and reset before each scenario).
+    extensions:
+        XPHP\Lsp\Test\Behat\WorldExtension: ~
+    suites:
+        default:
+            paths:
+                - '%paths.base%/features'
+            # Contexts live under test/ and are resolved by the root project's
+            # PSR-4 autoload-dev (XPHP\Lsp\Test\ -> test/), which the isolated
+            # Behat install pulls in via its files-autoload. ServerContext holds
+            # the cross-theme Givens + generic dispatchers; the rest are per-theme.
+            contexts:
+                - 'XPHP\Lsp\Test\Behat\ServerContext'
+                - 'XPHP\Lsp\Test\Behat\NavigateContext'
+                - 'XPHP\Lsp\Test\Behat\EditContext'
+                - 'XPHP\Lsp\Test\Behat\UnderstandContext'
+                - 'XPHP\Lsp\Test\Behat\ValidateContext'
+                - 'XPHP\Lsp\Test\Behat\FindContext'
