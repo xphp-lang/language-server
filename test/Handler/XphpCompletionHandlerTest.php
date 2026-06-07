@@ -405,6 +405,68 @@ final class XphpCompletionHandlerTest extends TestCase
         self::assertNotContains('string', $labels, 'scalars must be dropped when slot is class-bounded');
     }
 
+    public function testIntersectionBoundRequiresAllLeaves(): void
+    {
+        // `Box<T : Animal & Stringable>` -- only a type implementing BOTH
+        // interfaces satisfies the slot; one implementing just one is dropped.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App;
+        interface Animal {}
+        class Box<T : Animal & \Stringable> {}
+        XPHP));
+        $workspace->open(new TextDocumentItem('/Models.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App;
+        class Both implements Animal, \Stringable {
+            public function __toString(): string { return ''; }
+        }
+        class OnlyAnimal implements Animal {}
+        class OnlyStringy implements \Stringable {
+            public function __toString(): string { return ''; }
+        }
+        XPHP));
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        $list = $this->completeBoundAware($workspace, '/Use.xphp', $useSource, strlen($useSource));
+        $labels = array_map(static fn (CompletionItem $i): string => $i->label, $list->items);
+
+        self::assertContains('Both', $labels, 'type satisfying every leaf of the intersection must surface');
+        self::assertNotContains('OnlyAnimal', $labels, 'satisfying only one leaf is not enough for an intersection');
+        self::assertNotContains('OnlyStringy', $labels, 'satisfying only one leaf is not enough for an intersection');
+    }
+
+    public function testUnionBoundAcceptsAnyLeaf(): void
+    {
+        // `Box<T : Cat | Dog>` -- a type implementing EITHER suffices.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App;
+        interface Cat {}
+        interface Dog {}
+        class Box<T : Cat | Dog> {}
+        XPHP));
+        $workspace->open(new TextDocumentItem('/Models.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App;
+        class Tabby implements Cat {}
+        class Collie implements Dog {}
+        class Fish {}
+        XPHP));
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        $list = $this->completeBoundAware($workspace, '/Use.xphp', $useSource, strlen($useSource));
+        $labels = array_map(static fn (CompletionItem $i): string => $i->label, $list->items);
+
+        self::assertContains('Tabby', $labels, 'a type satisfying one union leaf is accepted');
+        self::assertContains('Collie', $labels, 'a type satisfying the other union leaf is accepted');
+        self::assertNotContains('Fish', $labels, 'a type satisfying no union leaf is dropped');
+    }
+
     public function testUnboundedSecondSlotStillSuggestsScalarsAndClasses(): void
     {
         // Slot indexing: `Pair<K: \Stringable, V>` -- slot 0 is bounded

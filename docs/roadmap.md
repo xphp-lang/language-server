@@ -62,6 +62,13 @@ timeline
 Moved out of Planned / Exploratory since the last revision (exercised by the
 test suite; full descriptions to fold into [`README.md`](../README.md#features)):
 
+- **xphp 0.2.x generics** -- the turbofish call-site syntax
+  (`new Box::<T>()`, `Foo::method::<T>(...)`) is understood across completion,
+  hover, signature help, semantic tokens, and diagnostics. Composite bounds
+  (intersection `T : A & B`, union `T : A | B`, and F-bounded `T :
+  Comparable<T>`) are rendered in hover and respected by type-argument
+  completion (a candidate must satisfy every leaf of an intersection, any leaf
+  of a union).
 - **Argument-type checker V2** -- a new `xphp.arg-mismatch` diagnostic extends
   the constructor check to `$obj->m(...)`, `Cls::m(...)`, and `freeFn(...)`, with
   conservative "simple-locals" inference for `$var` arguments assigned from a

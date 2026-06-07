@@ -21,8 +21,10 @@ use Phpactor\WorseReflection\Reflector;
 use Throwable;
 use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Lsp\Resolver\ClassNameImportContext;
 use XPHP\Lsp\Resolver\PhpCompletionResolver;
+use XPHP\Transpiler\Monomorphize\BoundExpr;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 /**
@@ -142,7 +144,7 @@ final class XphpCompletionHandler implements Handler, CanRegisterCapabilities
     /**
      * @return list<CompletionItem>
      */
-    private function buildCandidates(string $prefix, ?string $bound, ClassNameImportContext $importContext): array
+    private function buildCandidates(string $prefix, ?BoundExpr $bound, ClassNameImportContext $importContext): array
     {
         $items = [];
 
@@ -151,12 +153,12 @@ final class XphpCompletionHandler implements Handler, CanRegisterCapabilities
             if (!self::matchesPrefix($shortName, $fqn, $prefix)) {
                 continue;
             }
-            // Phase 3: bound-aware filtering.  When the type-arg slot
-            // declares an upper bound (`Box<T: Stringable>`), suppress
-            // candidates that aren't subtypes of it.  If reflection
-            // fails for a candidate (closed-source / parse error), keep
-            // it -- under-filter beats hiding a viable choice.
-            if ($bound !== null && !$this->satisfiesBound($fqn, $bound)) {
+            // Bound-aware filtering. When the type-arg slot declares an upper
+            // bound (`Box<T: A & B>`), suppress candidates that don't satisfy
+            // it -- every leaf for an intersection, any leaf for a union. If
+            // reflection fails for a candidate (closed-source / parse error),
+            // keep it -- under-filter beats hiding a viable choice.
+            if (!$this->satisfiesBound($fqn, $bound)) {
                 continue;
             }
             $items[] = new CompletionItem(
@@ -204,14 +206,14 @@ final class XphpCompletionHandler implements Handler, CanRegisterCapabilities
      *  - the container can't be resolved to a known generic class,
      *  - the slot has no declared bound (unbounded type-param).
      */
-    private function boundFor(string $containerName, int $slot): ?string
+    private function boundFor(string $containerName, int $slot): ?BoundExpr
     {
         if ($this->fqnIndex === null) {
             return null;
         }
         $candidates = $this->resolveContainerFqns($containerName);
         foreach ($candidates as $fqn) {
-            $bounds = $this->fqnIndex->boundsForGenericClass($fqn);
+            $bounds = $this->fqnIndex->boundExprsForGenericClass($fqn);
             if ($bounds === null) {
                 continue;
             }
@@ -267,14 +269,28 @@ final class XphpCompletionHandler implements Handler, CanRegisterCapabilities
     }
 
     /**
-     * "Is `$candidateFqn` a subtype of `$boundFqn`?"  Walks the candidate
-     * class's parent + interface chain via worse-reflection.  Returns true
-     * when the bound appears in the chain (or equals the candidate); false
-     * otherwise; ALSO true when reflection fails -- we prefer surfacing a
-     * possibly-incompatible candidate over silently hiding one the user
-     * meant to pick.
+     * Does `$candidateFqn` satisfy the slot's `$bound`?  An unbounded slot
+     * (null) admits everything; a composite bound requires every leaf of an
+     * intersection and any leaf of a union (delegated to `BoundExprView`).
+     * Each leaf check walks the candidate's parent + interface chain via
+     * worse-reflection; reflection failure resolves to "satisfied" so we
+     * under-filter rather than hide a viable choice.
      */
-    private function satisfiesBound(string $candidateFqn, string $boundFqn): bool
+    private function satisfiesBound(string $candidateFqn, ?BoundExpr $bound): bool
+    {
+        return BoundExprView::isSatisfiedBy(
+            $candidateFqn,
+            $bound,
+            fn (string $candidate, string $leafFqn): bool => $this->isSubtypeOfLeaf($candidate, $leafFqn),
+        );
+    }
+
+    /**
+     * Leaf-level subtype oracle for `satisfiesBound`. True when `$boundFqn`
+     * appears in the candidate's parent/interface chain (or equals it), and
+     * also true when reflection fails (under-filter over hiding).
+     */
+    private function isSubtypeOfLeaf(string $candidateFqn, string $boundFqn): bool
     {
         if ($this->reflector === null) {
             return true;

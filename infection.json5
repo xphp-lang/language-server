@@ -124,6 +124,11 @@
         },
         "DecrementInteger": {
             "ignore": [
+                // FqnIndex::boundExprsForGenericClass filesystem-fallback
+                // cache key `"file://" . $decl["path"]` -- the key only needs
+                // to be distinct from open-doc URIs; its exact text does not
+                // change the re-parsed bound result.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::boundExprsForGenericClass",
                 // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
                 // the candidate-name dedup/sort/3-cap slice and the
                 // scalar-flag coalesce/cast are observability/ordering
@@ -250,6 +255,11 @@
         },
         "IncrementInteger": {
             "ignore": [
+                // FqnIndex::boundExprsForGenericClass filesystem-fallback
+                // cache key `"file://" . $decl["path"]` -- the key only needs
+                // to be distinct from open-doc URIs; its exact text does not
+                // change the re-parsed bound result.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::boundExprsForGenericClass",
                 // WorkspaceAnalyzer::buildBoundFixData `array_slice(..., 0, 3)`
                 // candidate cap -- a presentation limit; swap candidates are
                 // asserted by set membership, so 3 vs 4 is equivalent.
@@ -557,6 +567,15 @@
         // can't be distinguished by any AST nikic would actually emit.
         "LogicalOr": {
             "ignore": [
+                // XphpCompletionHandler::isSubtypeOfLeaf defensive guards:
+                // the `ltrim($x, "\\")` normalisations (workspace candidate
+                // FQNs and bound leaves already arrive without a leading
+                // backslash) and the `$candidate === "" || $bound === "" ||
+                // $candidate === $bound` fast-path (same verdict the
+                // reflection walk would return) are equivalent -- the
+                // composite intersection/union completion tests cover the
+                // real isInstanceOf verdict.
+                "XPHP\\Lsp\\Handler\\XphpCompletionHandler::isSubtypeOfLeaf",
                 // Turbofish/bound view equivalent mutants: defensive
                 // bounds guards (offset/index range checks where >/>=
                 // converge because the surrounding byte re-check rejects
@@ -837,6 +856,15 @@
         // creating fixture infrastructure for malformed callers.
         "UnwrapLtrim": {
             "ignore": [
+                // XphpCompletionHandler::isSubtypeOfLeaf defensive guards:
+                // the `ltrim($x, "\\")` normalisations (workspace candidate
+                // FQNs and bound leaves already arrive without a leading
+                // backslash) and the `$candidate === "" || $bound === "" ||
+                // $candidate === $bound` fast-path (same verdict the
+                // reflection walk would return) are equivalent -- the
+                // composite intersection/union completion tests cover the
+                // real isInstanceOf verdict.
+                "XPHP\\Lsp\\Handler\\XphpCompletionHandler::isSubtypeOfLeaf",
                 // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
                 // the candidate-name dedup/sort/3-cap slice and the
                 // scalar-flag coalesce/cast are observability/ordering
@@ -1394,6 +1422,11 @@
         // mutation scoring.
         "Concat": {
             "ignore": [
+                // FqnIndex::boundExprsForGenericClass filesystem-fallback
+                // cache key `"file://" . $decl["path"]` -- the key only needs
+                // to be distinct from open-doc URIs; its exact text does not
+                // change the re-parsed bound result.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::boundExprsForGenericClass",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1429,6 +1462,11 @@
         },
         "ConcatOperandRemoval": {
             "ignore": [
+                // FqnIndex::boundExprsForGenericClass filesystem-fallback
+                // cache key `"file://" . $decl["path"]` -- the key only needs
+                // to be distinct from open-doc URIs; its exact text does not
+                // change the re-parsed bound result.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::boundExprsForGenericClass",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1721,6 +1759,12 @@
         },
         "ReturnRemoval": {
             "ignore": [
+                // XphpCompletionHandler::boundFor `return null` on the
+                // legacy no-FqnIndex constructor path -- bound-aware
+                // filtering is simply skipped there (treated as unbounded);
+                // the guard mirrors the same legacy-path guards already
+                // ignored for ::complete.
+                "XPHP\\Lsp\\Handler\\XphpCompletionHandler::boundFor",
                 // Turbofish/bound view equivalent mutants: defensive
                 // bounds guards (offset/index range checks where >/>=
                 // converge because the surrounding byte re-check rejects

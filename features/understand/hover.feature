@@ -30,3 +30,18 @@ Feature: Hover
     And the hover contents contain "`T`"
     And the hover contents contain "App\Box"
     And the hover contents contain "Stringable"
+
+  Scenario: Hover over a type parameter shows a composite bound
+    Given the file at "/pair.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Pair<T : Animal & Comparable>
+      {
+          public T $item;
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "T" at line 4 of "/pair.xphp"
+    Then the hover contents contain "bounded by"
+    And the hover contents contain "\App\Animal & \App\Comparable"
