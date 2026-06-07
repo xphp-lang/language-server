@@ -14,7 +14,7 @@ Feature: Cross-file diagnostic broadcast
       """
       <?php
       namespace App;
-      $x = new Box<int>();
+      $x = new Box::<int>();
       """
     And the FQN index has been warmed on initialize
     And the diagnostics service is running

@@ -14,10 +14,10 @@ Feature: Completion when there is nothing to suggest
       """
       <?php
       namespace App;
-      $x = new Box<Zzz
+      $x = new Box::<Zzz
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<Zzz" at line 2 of "/Use.xphp"
+    When I request completion after "Box::<Zzz" at line 2 of "/Use.xphp"
     Then no completion item labeled "Plastic" is offered
     And no completion item labeled "Metal" is offered
 

@@ -68,7 +68,7 @@ Feature: Diagnostics
       """
       <?php
       namespace App;
-      $x = new Box<int>();
+      $x = new Box::<int>();
       """
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
@@ -106,7 +106,7 @@ Feature: Diagnostics
       use App\Containers\StringableBox;
       use App\Models\Tag;
       use App\Models\User;
-      $v = new StringableBox<Tag>(new User());
+      $v = new StringableBox::<Tag>(new User());
       """
     And the FQN index has been warmed on initialize
     When I analyze "/Bounds.xphp" for diagnostics

@@ -37,13 +37,13 @@ final class XphpDefinitionHandlerTest extends TestCase
         $useSource = <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<Plastic>();
+        $x = new Box::<Plastic>();
         XPHP;
         $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, $boxSource));
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $handler = $this->newHandler($workspace);
-        $location = $this->definitionAt($handler, '/Use.xphp', $useSource, 'Box<Plastic>');
+        $location = $this->definitionAt($handler, '/Use.xphp', $useSource, 'Box::<Plastic>');
 
         self::assertInstanceOf(Location::class, $location);
         self::assertSame('/Box.xphp', $location->uri);
@@ -80,12 +80,12 @@ final class XphpDefinitionHandlerTest extends TestCase
         $useSource = <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<Plastic>();
+        $x = new Box::<Plastic>();
         XPHP;
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $handler = $this->newHandler($workspace);
-        $location = $this->definitionAt($handler, '/Use.xphp', $useSource, 'Box<Plastic>');
+        $location = $this->definitionAt($handler, '/Use.xphp', $useSource, 'Box::<Plastic>');
 
         self::assertNull($location);
     }
@@ -126,11 +126,11 @@ final class XphpDefinitionHandlerTest extends TestCase
         namespace App;
         class Container<T> { public T $item; }
         XPHP;
-        $useSource = "<?php\nnamespace App;\n\$x = new Container<Plastic>();";
+        $useSource = "<?php\nnamespace App;\n\$x = new Container::<Plastic>();";
         $workspace->open(new TextDocumentItem('/Container.xphp', 'xphp', 1, $boxSource));
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
-        $location = $this->definitionAt($this->newHandler($workspace), '/Use.xphp', $useSource, 'Container<Plastic>');
+        $location = $this->definitionAt($this->newHandler($workspace), '/Use.xphp', $useSource, 'Container::<Plastic>');
 
         self::assertNotNull($location);
         $charCount = $location->range->end->character - $location->range->start->character;
@@ -156,10 +156,10 @@ final class XphpDefinitionHandlerTest extends TestCase
         namespace App;
         class Container<T> { public T $item; }
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$x = new Container<Plastic>();";
+        $useSource = "<?php\nnamespace App;\n\$x = new Container::<Plastic>();";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
-        $location = $this->definitionAt($this->newHandler($workspace), '/Use.xphp', $useSource, 'Container<Plastic>');
+        $location = $this->definitionAt($this->newHandler($workspace), '/Use.xphp', $useSource, 'Container::<Plastic>');
 
         self::assertNotNull($location);
         self::assertSame('/Container.xphp', $location->uri);
@@ -168,7 +168,7 @@ final class XphpDefinitionHandlerTest extends TestCase
     public function testJumpsFromTypeArgInsideGenericClauseToClassDeclaration(): void
     {
         // The xphp-specific case: Ctrl+click on `User` inside the `<>` of
-        // `identity<User>(...)` should land on `class User`.  This relies on
+        // `identity::<User>(...)` should land on `class User`.  This relies on
         // the second code path in `definition()` -- the inner `User` doesn't
         // survive as a Name node in the AST (XphpSourceParser strips it into
         // a marker entry on the outer FuncCall), so the ATTR_TEMPLATE_FQN
@@ -180,12 +180,12 @@ final class XphpDefinitionHandlerTest extends TestCase
         namespace App;
         class User { public function __construct(public string $name) {} }
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$asUser = identity<User>(new User('bob'));";
+        $useSource = "<?php\nnamespace App;\n\$asUser = identity::<User>(new User('bob'));";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         // Cursor points at the `User` INSIDE the angle brackets, not the
         // `User` in the `new User(...)` ctor.
-        $genericClauseStart = strpos($useSource, 'identity<') + strlen('identity<');
+        $genericClauseStart = strpos($useSource, 'identity::<') + strlen('identity::<');
         $location = $this->definitionAtOffset($this->newHandler($workspace), '/Use.xphp', $useSource, $genericClauseStart + 1);
 
         self::assertNotNull($location);
@@ -198,7 +198,7 @@ final class XphpDefinitionHandlerTest extends TestCase
         // Distinguishes "we tried Path 2 and didn't find anything" from a
         // wiring bug.
         $workspace = new PhpactorWorkspace();
-        $useSource = "<?php\n\$x = identity<Unknown>(null);";
+        $useSource = "<?php\n\$x = identity::<Unknown>(null);";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $offset = strpos($useSource, 'Unknown') + 1;
@@ -226,10 +226,10 @@ final class XphpDefinitionHandlerTest extends TestCase
             XPHP);
 
             $workspace = new PhpactorWorkspace();
-            $useSource = "<?php\nuse App\\Containers\\Box;\n\$b = new Box<int>();\n";
+            $useSource = "<?php\nuse App\\Containers\\Box;\n\$b = new Box::<int>();\n";
             $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
-            // Cursor on `Box` of `new Box<int>()`.
+            // Cursor on `Box` of `new Box::<int>()`.
             $byte = strpos($useSource, 'new Box') + strlen('new ');
             $location = $this->definitionAtOffset($this->newHandler($workspace, $root), '/Use.xphp', $useSource, $byte);
 
@@ -260,9 +260,9 @@ final class XphpDefinitionHandlerTest extends TestCase
             XPHP);
 
             $workspace = new PhpactorWorkspace();
-            // identity<User>(...) -- the `User` identifier is INSIDE the
+            // identity::<User>(...) -- the `User` identifier is INSIDE the
             // generic clause, only reachable via TypeArgPositionDetector.
-            $useSource = "<?php\nfunction identity<T>(T \$x): T { return \$x; }\n\$x = identity<User>(null);\n";
+            $useSource = "<?php\nfunction identity<T>(T \$x): T { return \$x; }\n\$x = identity::<User>(null);\n";
             $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
             // Cursor on `User`.
@@ -297,7 +297,7 @@ final class XphpDefinitionHandlerTest extends TestCase
             $editedSource = "<?php\nnamespace App\\Containers;\n\nclass Box<T> {}\n";
             $workspace->open(new TextDocumentItem('/edit/Box.xphp', 'xphp', 1, $editedSource));
 
-            $useSource = "<?php\nuse App\\Containers\\Box;\n\$b = new Box<int>();\n";
+            $useSource = "<?php\nuse App\\Containers\\Box;\n\$b = new Box::<int>();\n";
             $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
             $byte = strpos($useSource, 'new Box') + strlen('new ');
@@ -447,7 +447,7 @@ final class XphpDefinitionHandlerTest extends TestCase
             public function first(): ?T { return null; }
         }
         XPHP));
-        $useSource = "<?php\nuse App\\Containers\\Collection;\n\$users = new Collection<int>();\n\$first = \$users->first();\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\n\$users = new Collection::<int>();\n\$first = \$users->first();\n";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $byte = strpos($useSource, '->first') + strlen('->'); // cursor on `first`
@@ -498,12 +498,12 @@ final class XphpDefinitionHandlerTest extends TestCase
         // short-circuit on a fresh token and break happy-path GTD.
         $workspace = new PhpactorWorkspace();
         $boxSource = "<?php\nnamespace App;\nclass Box<T> {}\n";
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<int>();\n";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<int>();\n";
         $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, $boxSource));
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $handler = $this->newHandler($workspace);
-        $byte = strpos($useSource, 'Box<int>');
+        $byte = strpos($useSource, 'Box::<int>');
         self::assertNotFalse($byte);
         [$line, $character] = (new PositionMap($useSource))->offsetToPosition($byte);
         $params = new DefinitionParams(
@@ -523,12 +523,12 @@ final class XphpDefinitionHandlerTest extends TestCase
     {
         $workspace = new PhpactorWorkspace();
         $boxSource = "<?php\nnamespace App;\nclass Box<T> {}\n";
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<int>();\n";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<int>();\n";
         $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, $boxSource));
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $handler = $this->newHandler($workspace);
-        $byte = strpos($useSource, 'Box<int>');
+        $byte = strpos($useSource, 'Box::<int>');
         self::assertNotFalse($byte);
         [$line, $character] = (new PositionMap($useSource))->offsetToPosition($byte);
         $params = new DefinitionParams(

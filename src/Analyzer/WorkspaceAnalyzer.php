@@ -10,6 +10,7 @@ use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitorAbstract;
 use RuntimeException;
+use XPHP\Lsp\Handler\TurbofishScanner;
 use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Transpiler\Monomorphize\Registry;
@@ -461,19 +462,18 @@ final readonly class WorkspaceAnalyzer
      */
     private static function typeArgRange(string $source, int $fromOffset, int $index, PositionMap $positionMap): ?array
     {
-        $len = strlen($source);
-        $i = $fromOffset;
-        while ($i < $len && ctype_space($source[$i])) {
-            $i++;
-        }
-        if ($i >= $len || $source[$i] !== '<') {
+        // Call-site generic args use the turbofish `Name::<…>`; locate the
+        // clause via the shared scanner ($fromOffset is one past the name end).
+        $clause = TurbofishScanner::clauseAfter($source, $fromOffset - 1);
+        if ($clause === null) {
             return null;
         }
-        $i++;
+        $i = $clause['openPos'] + 1;
+        $closePos = $clause['closePos'];
         $depth = 0;
         $segmentStart = $i;
         $segments = [];
-        for (; $i < $len; $i++) {
+        for (; $i <= $closePos; $i++) {
             $ch = $source[$i];
             if ($ch === '<') {
                 $depth++;

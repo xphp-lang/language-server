@@ -46,7 +46,7 @@ final class ConstructorArgumentCheckerTest extends TestCase
             use App\Containers\StringableBox;
             use App\Models\Tag;
             use App\Models\User;
-            $v = new StringableBox<Tag>(new User());
+            $v = new StringableBox::<Tag>(new User());
             PHP,
         ]);
 
@@ -81,7 +81,7 @@ final class ConstructorArgumentCheckerTest extends TestCase
             namespace App\Demos;
             use App\Containers\StringableBox;
             use App\Models\Tag;
-            $v = new StringableBox<Tag>(new Tag());
+            $v = new StringableBox::<Tag>(new Tag());
             PHP,
         ]);
 

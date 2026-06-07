@@ -185,7 +185,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>();\n\$users->save(new User());\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$users->save(new User());\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '$users->save', strlen('$users->save'));
@@ -212,7 +212,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Containers\\Pair;\nuse App\\Models\\User;\n\$p = new Pair<string, User>();\n\$p->put('x', new User());\n";
+        $useSource = "<?php\nuse App\\Containers\\Pair;\nuse App\\Models\\User;\n\$p = new Pair::<string, User>();\n\$p->put('x', new User());\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '$p->put', strlen('$p->put'));
@@ -239,7 +239,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Containers\\Factory;\nuse App\\Models\\User;\nFactory::make<User>(new User());\n";
+        $useSource = "<?php\nuse App\\Containers\\Factory;\nuse App\\Models\\User;\nFactory::make::<User>(new User());\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'Factory::make', strlen('Factory::make'));
@@ -263,10 +263,10 @@ final class PhpHoverResolverTest extends TestCase
         function identity<T>(T $value): T { return $value; }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Models\\User;\nuse function App\\identity;\nidentity<User>(new User());\n";
+        $useSource = "<?php\nuse App\\Models\\User;\nuse function App\\identity;\nidentity::<User>(new User());\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
-        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'identity<User>', strlen('identity'));
+        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'identity::<User>', strlen('identity'));
 
         self::assertSame(
             "```php\nfunction App\\identity(App\\Models\\User \$value): App\\Models\\User\n```",
@@ -299,7 +299,7 @@ final class PhpHoverResolverTest extends TestCase
 
     public function testStaticMethodDeclarationHoverStripsNamespaceFromMethodScopeTemplate(): void
     {
-        // Same gap, method-scope side: `Util::first<T>(...)` declared in
+        // Same gap, method-scope side: `Util::first::<T>(...)` declared in
         // `namespace App\Containers`.  Bare `T` in the body resolves to
         // `App\Containers\T`; prettify must strip back to `T`.
         $workspace = $this->workspace();
@@ -338,7 +338,7 @@ final class PhpHoverResolverTest extends TestCase
             public function save(T $item): void {}
         }
         XPHP);
-        // No `new Collection<User>(...)` in scope -- just hovering a
+        // No `new Collection::<User>(...)` in scope -- just hovering a
         // method call on a param-typed-without-generics receiver.
         $useSource = "<?php\nuse App\\Containers\\Collection;\nfunction handle(Collection \$c): void {\n    \$c->save('x');\n}\n";
         $this->open($workspace, '/Use.xphp', $useSource);
@@ -372,7 +372,7 @@ final class PhpHoverResolverTest extends TestCase
             public string $name = '';
         }
         XPHP);
-        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository<User>();\necho \$repo->first()?->name;\n";
+        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository::<User>();\necho \$repo->first()?->name;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '?->name', strlen('?->'));
@@ -398,7 +398,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User { public string \$name = ''; }\n");
-        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository<User>();\n\$user = \$repo->first();\necho \$user?->name;\n";
+        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository::<User>();\n\$user = \$repo->first();\necho \$user?->name;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '?->name', strlen('?->'));
@@ -676,7 +676,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>();\n\$user = \$users->first();\necho \$user;\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$user = \$users->first();\necho \$user;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'echo $user', strlen('echo '));
@@ -704,7 +704,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>();\n\$user = \$users->first();\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$user = \$users->first();\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '$users->first', strlen('$users->first'));
@@ -846,7 +846,7 @@ final class PhpHoverResolverTest extends TestCase
 
     public function testVariableHoverFallsBackToPrettifyForUnmodeledShapes(): void
     {
-        // GenericResolver only handles same-file `new Generic<...>()` +
+        // GenericResolver only handles same-file `new Generic::<...>()` +
         // `$var = $other->method()` chains.  For shapes it doesn't
         // model (here: a bare variable whose worse-reflection-inferred
         // type still carries a generic placeholder, with NO `new`
@@ -862,7 +862,7 @@ final class PhpHoverResolverTest extends TestCase
             public function getMaybeFirst(?T $fallback): ?T { return $fallback; }
         }
         XPHP);
-        // No `new Collection<User>(...)` in this snippet: `$x` is a
+        // No `new Collection::<User>(...)` in this snippet: `$x` is a
         // closure parameter we can't trace.  GenericResolver returns null,
         // worse-reflection surfaces `?App\Containers\T`, prettify strips
         // the namespace.
@@ -918,7 +918,7 @@ final class PhpHoverResolverTest extends TestCase
     public function testPropertyHoverOnSubstitutedReceiverFromStaticCall(): void
     {
         // This test originally asserted null because pre-Phase-1.2 the
-        // static call `Util::identity<User>(...)` couldn't substitute,
+        // static call `Util::identity::<User>(...)` couldn't substitute,
         // and pre-Phase-0.7 the property hover couldn't find User.  Now
         // both work in combination: the static call binds `$asUser` to
         // `App\User`, and the property hover at `$asUser->name`
@@ -936,7 +936,7 @@ final class PhpHoverResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App;\nclass User { public string \$name = ''; }\n");
-        $useSource = "<?php\nuse App\\Util;\nuse App\\User;\n\$asUser = Util::identity<User>(new User());\necho \$asUser->name;\n";
+        $useSource = "<?php\nuse App\\Util;\nuse App\\User;\n\$asUser = Util::identity::<User>(new User());\necho \$asUser->name;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '$asUser->name', strlen('$asUser->'));

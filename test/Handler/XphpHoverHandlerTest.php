@@ -27,10 +27,10 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<Plastic>();
+        $x = new Box::<Plastic>();
         XPHP);
         // Cursor on the `B` of `Box`.
-        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'Box<Plastic>');
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'Box::<Plastic>');
 
         self::assertInstanceOf(Hover::class, $hover);
         self::assertInstanceOf(MarkupContent::class, $hover->contents);
@@ -306,7 +306,7 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $bounded = new StringableBox<\App\Models\Tag>();
+        $bounded = new StringableBox::<\App\Models\Tag>();
         XPHP);
         $source = $workspace->get($uri)->text;
         // Cursor on the `T` of `Tag` inside the angle clause.
@@ -327,7 +327,7 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $bounded = new StringableBox<\App\Models\Tag>();
+        $bounded = new StringableBox::<\App\Models\Tag>();
         XPHP);
         $source = $workspace->get($uri)->text;
         $hover = $this->hoverAt($handler, $uri, $source, '<\\App\\Models\\Tag');
@@ -343,7 +343,7 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $pair = new Pair<\App\Models\Tag, \App\Models\User>();
+        $pair = new Pair::<\App\Models\Tag, \App\Models\User>();
         XPHP);
         $source = $workspace->get($uri)->text;
         // Cursor on `U` of `User` (second arg).
@@ -396,7 +396,7 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $b = new Box<int>();
+        $b = new Box::<int>();
         XPHP);
         $source = $workspace->get($uri)->text;
         $hover = $this->hoverAt($handler, $uri, $source, 'int>');
@@ -415,8 +415,8 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $a = new Box<\App\Models\Tag>();
-        $b = new Box<\App\Models\User>();
+        $a = new Box::<\App\Models\Tag>();
+        $b = new Box::<\App\Models\User>();
         XPHP);
         $source = $workspace->get($uri)->text;
         // Cursor on the second occurrence of `Tag` or `User`.  We use
@@ -437,8 +437,8 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $a = new Box<\App\Models\Tag>();
-        $b = new Box<\App\Models\User>();
+        $a = new Box::<\App\Models\Tag>();
+        $b = new Box::<\App\Models\User>();
         XPHP);
         $source = $workspace->get($uri)->text;
         // Cursor on first `Tag`.
@@ -459,7 +459,7 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $b = new Box<\App\Models\Tag>();
+        $b = new Box::<\App\Models\Tag>();
         XPHP);
         $source = $workspace->get($uri)->text;
         $byte = strpos($source, '<\\App');
@@ -485,7 +485,7 @@ final class XphpHoverHandlerTest extends TestCase
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        $b = new Box<\App\Models\Tag>();
+        $b = new Box::<\App\Models\Tag>();
         XPHP);
         $source = $workspace->get($uri)->text;
         $byte = strpos($source, 'Tag>');
@@ -509,7 +509,7 @@ final class XphpHoverHandlerTest extends TestCase
         // pointing at the first whitespace byte; the subsequent
         // `$source[$i] !== '<'` check would then return null and
         // we'd miss the clause entirely.
-        $source = 'StringableBox  <Tag>';
+        $source = 'StringableBox  ::<Tag>';
         $range = XphpHoverHandler::findAngleRange($source, strlen('StringableBox') - 1);
         self::assertNotNull($range);
         self::assertSame(strpos($source, '<'), $range['openPos']);
@@ -523,7 +523,7 @@ final class XphpHoverHandlerTest extends TestCase
         // return null;` check, the function would still return a
         // bogus closePos (the end of source), which would then
         // produce an absurd innerText extending past the actual EOF.
-        $source = 'Box<Tag';
+        $source = 'Box::<Tag';
         self::assertNull(XphpHoverHandler::findAngleRange($source, strlen('Box') - 1));
     }
 
@@ -545,7 +545,7 @@ final class XphpHoverHandlerTest extends TestCase
         // be the LAST `>`, not the first.  Locks the depth-tracking
         // (`$depth > 0` and the `<`/`>` increment/decrement) in the
         // match loop.
-        $source = 'Box<Map<K,V>>';
+        $source = 'Box::<Map<K,V>>';
         $range = XphpHoverHandler::findAngleRange($source, strlen('Box') - 1);
         self::assertNotNull($range);
         self::assertSame(strpos($source, '<'), $range['openPos']);

@@ -245,7 +245,7 @@ final class PhpDefinitionResolverTest extends TestCase
     {
         // Originally a crash-safety test: pre-hotfix code crashed when
         // dispatching with `containerType=MissingType` (from
-        // `$asUser = Util::identity<User>(...)` whose return-type
+        // `$asUser = Util::identity::<User>(...)` whose return-type
         // resolved to a bare `T` worse-reflection couldn't find).
         // After Phase 1.2 (static-call substitution) + Phase 0.7
         // (property-receiver substitution), the chain now resolves
@@ -263,7 +263,7 @@ final class PhpDefinitionResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App;\nclass User { public string \$name = ''; }\n");
-        $useSource = "<?php\nuse App\\Util;\nuse App\\User;\n\$asUser = Util::identity<User>(new User());\necho \$asUser->name;\n";
+        $useSource = "<?php\nuse App\\Util;\nuse App\\User;\n\$asUser = Util::identity::<User>(new User());\necho \$asUser->name;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $location = $this->resolveAt($workspace, '/Use.xphp', $useSource, '$asUser->name', strlen('$asUser->'));
@@ -373,7 +373,7 @@ final class PhpDefinitionResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User { public string \$name = ''; }\n");
-        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository<User>();\necho \$repo->first()?->name;\n";
+        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository::<User>();\necho \$repo->first()?->name;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $location = $this->resolveAt($workspace, '/Use.xphp', $useSource, '?->name', strlen('?->'));
@@ -395,7 +395,7 @@ final class PhpDefinitionResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User { public string \$name = ''; }\n");
-        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository<User>();\n\$user = \$repo->first();\necho \$user?->name;\n";
+        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository::<User>();\n\$user = \$repo->first();\necho \$user?->name;\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $location = $this->resolveAt($workspace, '/Use.xphp', $useSource, '?->name', strlen('?->'));

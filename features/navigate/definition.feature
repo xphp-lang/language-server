@@ -52,7 +52,7 @@ Feature: Go to definition
       use App\Containers\Collection;
       use App\Models\User;
 
-      $users = new Collection<User>(new User('Alice'), new User('Bob'));
+      $users = new Collection::<User>(new User('Alice'), new User('Bob'));
       $first = $users->first();
       """
     And the FQN index has been warmed on initialize

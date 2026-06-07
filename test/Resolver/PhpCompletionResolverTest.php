@@ -837,7 +837,7 @@ final class PhpCompletionResolverTest extends TestCase
     public function testCompletesMembersOnReceiverFromGenericInstantiation(): void
     {
         // Mirrors the user-reported failing case in
-        // xphp-20260524-150655-167.log:  `$users = new Collection<User>(...)`
+        // xphp-20260524-150655-167.log:  `$users = new Collection::<User>(...)`
         // followed by `$users->|` on the next line.  The xphp strip turns
         // `<User>` into whitespace; worse-reflection should still infer
         // `$users: App\Containers\Collection` from the ctor and surface
@@ -866,7 +866,7 @@ final class PhpCompletionResolverTest extends TestCase
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User { public function __construct(public string \$name) {} }\n");
 
-        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>(new User('a'));\n\$users->\necho 'done';\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>(new User('a'));\n\$users->\necho 'done';\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $items = $this->completeAt($workspace, '/Use.xphp', $useSource, '$users->', strlen('$users->'));
@@ -1022,7 +1022,7 @@ final class PhpCompletionResolverTest extends TestCase
     public function testMemberCompletionSubstitutesGenericReceiverViaResolver(): void
     {
         // Mirrors the user-reported gap in xphp-20260524-214251-685.log:
-        //     $users = new Collection<User>();
+        //     $users = new Collection::<User>();
         //     $u = $users->first();      // $u is ?T -> ?App\Models\User
         //     $u->|                      // member completion here returned 0
         // worse-reflection sees `?App\Containers\T` for the receiver, so
@@ -1045,7 +1045,7 @@ final class PhpCompletionResolverTest extends TestCase
             public function shout(): string { return ''; }
         }
         XPHP);
-        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>();\n\$u = \$users->first();\n\$u->\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$u = \$users->first();\n\$u->\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $items = $this->completeAt($workspace, '/Use.xphp', $useSource, '$u->', strlen('$u->'));
@@ -1079,7 +1079,7 @@ final class PhpCompletionResolverTest extends TestCase
             public function shout(): string { return ''; }
         }
         XPHP);
-        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository<User>();\n\$repo->first()?->\n";
+        $useSource = "<?php\nuse App\\Containers\\Repository;\nuse App\\Models\\User;\n\$repo = new Repository::<User>();\n\$repo->first()?->\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $items = $this->completeAt(
@@ -1112,7 +1112,7 @@ final class PhpCompletionResolverTest extends TestCase
         }
         XPHP);
         $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
-        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>();\n\$users->\n";
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$users->\n";
         $this->open($workspace, '/Use.xphp', $useSource);
 
         $items = $this->completeAt($workspace, '/Use.xphp', $useSource, '$users->', strlen('$users->'));

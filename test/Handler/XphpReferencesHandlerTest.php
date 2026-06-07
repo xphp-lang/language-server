@@ -810,7 +810,7 @@ final class XphpReferencesHandlerTest extends TestCase
         // flipping `isRequested` to `!isRequested` would short-circuit
         // even for fresh tokens, leaving every references call empty.
         $workspace = new PhpactorWorkspace();
-        $source = "<?php\nnamespace App;\nclass Box<T> {}\n\$x = new Box<int>();\n";
+        $source = "<?php\nnamespace App;\nclass Box<T> {}\n\$x = new Box::<int>();\n";
         $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, $source));
 
         $handler = $this->handler($workspace);
@@ -833,7 +833,7 @@ final class XphpReferencesHandlerTest extends TestCase
     public function testReturnsEmptyArrayWhenCancelTokenAlreadyRequested(): void
     {
         $workspace = new PhpactorWorkspace();
-        $source = "<?php\nnamespace App;\nclass Box<T> {}\n\$x = new Box<int>();\n";
+        $source = "<?php\nnamespace App;\nclass Box<T> {}\n\$x = new Box::<int>();\n";
         $workspace->open(new TextDocumentItem('/Box.xphp', 'xphp', 1, $source));
 
         $handler = $this->handler($workspace);

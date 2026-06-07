@@ -14,10 +14,10 @@ Feature: Completion
       """
       <?php
       namespace App;
-      $x = new Box<
+      $x = new Box::<
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<" at line 2 of "/Use.xphp"
+    When I request completion after "Box::<" at line 2 of "/Use.xphp"
     Then a completion item labeled "Plastic" is offered
     And a completion item labeled "Metal" is offered
     And the completion item "Plastic" has kind "class"
@@ -34,10 +34,10 @@ Feature: Completion
       """
       <?php
       namespace App;
-      $x = new Box<
+      $x = new Box::<
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<" at line 2 of "/Use.xphp"
+    When I request completion after "Box::<" at line 2 of "/Use.xphp"
     Then the completion item "Plastic" inserts "\App\Models\Plastic"
 
   Scenario: Insert the short name when the class is already imported
@@ -52,10 +52,10 @@ Feature: Completion
       <?php
       namespace App;
       use App\Models\Plastic;
-      $x = new Box<
+      $x = new Box::<
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<" at line 3 of "/Use.xphp"
+    When I request completion after "Box::<" at line 3 of "/Use.xphp"
     Then the completion item "Plastic" inserts "Plastic"
 
   Scenario Outline: Filter suggestions by the typed prefix
@@ -71,10 +71,10 @@ Feature: Completion
       """
       <?php
       namespace App;
-      $x = new Box<<prefix>
+      $x = new Box::<<prefix>
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<<prefix>" at line 2 of "/Use.xphp"
+    When I request completion after "Box::<<prefix>" at line 2 of "/Use.xphp"
     Then a completion item labeled "<match>" is offered
     And no completion item labeled "<other>" is offered
 
@@ -104,9 +104,9 @@ Feature: Completion
       """
       <?php
       namespace App;
-      $x = new Box<
+      $x = new Box::<
       """
     And the FQN index has been warmed on initialize
-    When I request completion after "Box<" at line 2 of "/Use.xphp"
+    When I request completion after "Box::<" at line 2 of "/Use.xphp"
     Then a completion item labeled "Tag" is offered
     And no completion item labeled "Number" is offered

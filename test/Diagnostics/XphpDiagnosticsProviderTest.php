@@ -72,7 +72,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $useDoc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<int>();
+        $x = new Box::<int>();
         XPHP);
 
         $diagnostics = $this->lint($workspace,$useDoc);
@@ -153,7 +153,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $useDoc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<int>();
+        $x = new Box::<int>();
         XPHP);
 
         $diagnostics = $this->lint($workspace, $useDoc);
@@ -209,7 +209,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
             <?php
             namespace App;
             use App\Models\Tag;
-            $x = new Box<Tag>(new Tag('hi'));
+            $x = new Box::<Tag>(new Tag('hi'));
             XPHP);
 
             $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
@@ -302,7 +302,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
             <?php
             namespace App;
             use App\Models\Tag;
-            $x = new Box<Tag>(new Tag('x'));
+            $x = new Box::<Tag>(new Tag('x'));
             XPHP);
 
             $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
@@ -368,7 +368,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
             namespace App\Demos;
             use App\Containers\StringableBox;
             use App\Models\User;
-            $bad = new StringableBox<User>(new User('x'));
+            $bad = new StringableBox::<User>(new User('x'));
             XPHP);
 
             $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
@@ -428,7 +428,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
             <?php
             namespace App;
             use App\Models\Plain;
-            $x = new Box<Plain>(new Plain());
+            $x = new Box::<Plain>(new Plain());
             XPHP);
 
             $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
@@ -464,7 +464,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $useDoc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<int>();
+        $x = new Box::<int>();
         XPHP);
 
         $diagnostics = $this->lint($workspace, $useDoc);
@@ -494,7 +494,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<int>();
+        $x = new Box::<int>();
         XPHP);
 
         wait($provider->provideDiagnostics($boxDoc, (new CancellationTokenSource())->getToken()));
@@ -522,7 +522,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<int>();
+        $x = new Box::<int>();
         XPHP);
 
         $token = (new CancellationTokenSource())->getToken();
@@ -547,7 +547,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $useDoc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         namespace App;
-        $x = new Box<int>();
+        $x = new Box::<int>();
         XPHP);
         $this->openDoc($workspace, '/Box.xphp', <<<'XPHP'
         <?php
@@ -606,7 +606,7 @@ final class XphpDiagnosticsProviderTest extends TestCase
             $fqnIndex = new FqnIndex($workspace, $cache, $parser, $root);
             (new \XPHP\Lsp\Analyzer\ParsedDocumentCacheWarmer($fqnIndex, $cache, $workspace))->warmNow();
 
-            $useSource = "<?php\nnamespace App\\Shared;\n\$x = new Box<Tag>(new Tag());\n";
+            $useSource = "<?php\nnamespace App\\Shared;\n\$x = new Box::<Tag>(new Tag());\n";
             $provider = new XphpDiagnosticsProvider($cache, new WorkspaceAnalyzer(), $workspace, $fqnIndex);
 
             $useA = $this->openDoc($workspace, 'file://' . $root . '/pkgA/Use.xphp', $useSource);

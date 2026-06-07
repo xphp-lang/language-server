@@ -24,7 +24,7 @@ Feature: Quick-fixes for generic bound violations
       """
       <?php
       namespace App;
-      $x = new Box<int>();
+      $x = new Box::<int>();
       """
     When I request code actions for the "xphp.bound" diagnostic in "/Use.xphp"
     Then a code action titled "Change type argument to Stringy" is offered
@@ -42,7 +42,7 @@ Feature: Quick-fixes for generic bound violations
       """
       <?php
       namespace App;
-      $x = new Box<Money>();
+      $x = new Box::<Money>();
       """
     When I request code actions for the "xphp.bound" diagnostic in "/Use.xphp"
     Then a code action titled "Add implements \Stringable to Money" is offered
