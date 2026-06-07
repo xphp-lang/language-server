@@ -139,3 +139,63 @@ Feature: Argument-type checking across call shapes
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
     Then no diagnostics are reported
+
+  Scenario: An omitted default type argument substitutes into parameter checks
+    Given the file at "/Box.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<T = User>
+      {
+          public function add(T $item): void {}
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class User {}
+      """
+    And the file at "/Tag.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class Tag {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $b = new Box::<>();
+      $b->add(new Tag());
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Use.xphp" for diagnostics
+    Then a "xphp.arg-mismatch" diagnostic is reported saying "expects App\User, got App\Tag"
+
+  Scenario: Omitting a default type argument is not a missing-type-arg error
+    Given the file at "/Box.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<T = User>
+      {
+          public function add(T $item): void {}
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class User {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $b = new Box::<>();
+      $b->add(new User());
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Use.xphp" for diagnostics
+    Then no diagnostics are reported

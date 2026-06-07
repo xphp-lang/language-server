@@ -68,7 +68,10 @@ test suite; full descriptions to fold into [`README.md`](../README.md#features))
   (intersection `T : A & B`, union `T : A | B`, and F-bounded `T :
   Comparable<T>`) are rendered in hover and respected by type-argument
   completion (a candidate must satisfy every leaf of an intersection, any leaf
-  of a union).
+  of a union). Default type arguments (`class Box<T = X>`,
+  `class Pair<A, B = A>`) may be omitted at a call site without a false
+  "missing type argument", with the effective type substituted into parameter
+  checks.
 - **Argument-type checker V2** -- a new `xphp.arg-mismatch` diagnostic extends
   the constructor check to `$obj->m(...)`, `Cls::m(...)`, and `freeFn(...)`, with
   conservative "simple-locals" inference for `$var` arguments assigned from a

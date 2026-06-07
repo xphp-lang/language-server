@@ -250,6 +250,16 @@ open buffers), so `new Box::<Tag>(...)` resolves correctly even when
 reference the source-level instantiation (e.g. `Box<int>`) rather
 than the hashed specialization name.
 
+### Default type arguments
+
+A generic with trailing defaults (`class Box<T = \stdClass>`,
+`class Pair<A, B = A>`) may be instantiated with the defaulted args
+omitted (`new Box::<>()`, `new Pair::<Dog>(...)`). The argument-type
+checker resolves the effective type for each omitted slot left-to-right
+(so `B = A` picks up the supplied `A`) and never reports a false
+"missing type argument", while still substituting the effective type
+into method parameter checks.
+
 ### Duplicate template declarations
 
 Fires when two files declare the same generic class / interface /
