@@ -169,6 +169,17 @@ final class AstVisitor
                 } elseif ($lastSignificantTokenId === T_STRING
                     && self::peekIsUppercaseIdent($tokens, $i + 1)
                 ) {
+                    // Declaration clause: `class Box<T>`, `function f<T>` --
+                    // the bare `<` follows the declared name (T_STRING).
+                    $genericDepth = 1;
+                } elseif ($lastSignificantTokenId === T_DOUBLE_COLON
+                    && self::peekIsUppercaseIdent($tokens, $i + 1)
+                ) {
+                    // Call-site turbofish: `Foo::<T>`, `static::<T>`,
+                    // `$obj->m::<T>` -- the `<` follows the `::` of `::<`. The
+                    // receiver token before `::` may be T_STRING (`Foo`,
+                    // `self`, `parent`) or T_STATIC (`static`); either way the
+                    // significant token immediately before `<` is the `::`.
                     $genericDepth = 1;
                 }
             } elseif (!$isNamedToken && $token->text === '>' && $genericDepth > 0) {

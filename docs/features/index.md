@@ -187,7 +187,7 @@ LSP method: `textDocument/signatureHelp`.
 
 Inline parameter list with the active argument highlighted. Type-arg
 substitution is baked into the rendered signature: a call to
-`new Box<Tag>(...)` shows `Tag` rather than `T` in the parameter
+`new Box::<Tag>(...)` shows `Tag` rather than `T` in the parameter
 hint. Works at static, instance, and free-function call sites.
 
 ### Inlay Hints
@@ -236,7 +236,7 @@ file.
 
 Compile-time validation of `T: Bound` against each concrete
 type-arg. The hierarchy spans the whole project on disk (not just
-open buffers), so `new Box<Tag>(...)` resolves correctly even when
+open buffers), so `new Box::<Tag>(...)` resolves correctly even when
 `Tag.xphp` isn't currently open in the editor. Error messages
 reference the source-level instantiation (e.g. `Box<int>`) rather
 than the hashed specialization name.
@@ -257,7 +257,7 @@ are fixable in one keystroke.
 
 ### Constructor argument-type mismatch (`xphp.ctor-arg-mismatch`)
 
-Post-monomorphization check on `new C(...)` and `new C<T>(...)`
+Post-monomorphization check on `new C(...)` and `new C::<T>(...)`
 call sites. Catches the case where the supplied argument's
 statically-known type can't satisfy the constructor parameter's
 declared type -- a runtime `TypeError` waiting to happen, surfaced
@@ -276,7 +276,7 @@ LSP method: `textDocument/completion`.
 
 Context-aware completion in every meaningful position:
 
-- **Type-arg position** (`new Box<|>(...)`) -- bound-aware
+- **Type-arg position** (`new Box::<|>(...)`) -- bound-aware
   filtering hides candidates that don't satisfy the slot's declared
   upper bound; scalars are dropped when the bound is class-like.
 - **Member access** (`$obj->`) and **static access** (`Cls::`) --
@@ -342,7 +342,7 @@ is paid once per machine, not once per session.
 ### Tolerant-parse fallback
 
 In-memory locators recover from trailing parse errors so mid-edit
-source (`$x->|`, `new Foo<|`) still returns useful completion /
+source (`$x->|`, `new Foo::<|`) still returns useful completion /
 hover / GTD results. Without this fallback, every incomplete
 keystroke would temporarily break the editor's intelligence and
 force the developer to wait for the source to be syntactically
