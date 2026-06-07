@@ -255,6 +255,13 @@
         },
         "IncrementInteger": {
             "ignore": [
+                // AstVisitor::nameBeforeAngleIsDeclaration steps back from the
+                // name to its keyword with `$nameIdx - 1`. PHP always has a
+                // whitespace token between a `class`/`function`/etc keyword and
+                // the declared name, and previousSignificant() skips trivia, so
+                // `- 1` vs `- 2` both land on the keyword -- the off-by-one is
+                // absorbed and unobservable.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::nameBeforeAngleIsDeclaration",
                 // FqnIndex::boundExprsForGenericClass filesystem-fallback
                 // cache key `"file://" . $decl["path"]` -- the key only needs
                 // to be distinct from open-doc URIs; its exact text does not
@@ -507,6 +514,12 @@
         },
         "GreaterThanOrEqualTo": {
             "ignore": [
+                // AstVisitor::previousSignificant boundary guards: `$i >= 0`
+                // (the only index it would additionally examine is 0, always the
+                // T_OPEN_TAG, never a significant declaration token) and
+                // `$t->id >= 256` (no PHP token has id exactly 256, so `>` vs
+                // `>=` never diverge). Both are unobservable boundary mutants.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::previousSignificant",
                 // Turbofish/bound view equivalent mutants: defensive
                 // bounds guards (offset/index range checks where >/>=
                 // converge because the surrounding byte re-check rejects
@@ -1082,6 +1095,11 @@
         // ASTs that don't appear in practice.
         "LessThan": {
             "ignore": [
+                // AstVisitor::nameBeforeAngleIsDeclaration `$keywordIdx < 0`
+                // guard: the only index where `<` vs `<=` diverges is 0, always
+                // the T_OPEN_TAG, which is never a declaration keyword -- so the
+                // in_array below returns false either way. Unobservable.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::nameBeforeAngleIsDeclaration",
                 // CallArgumentChecker default-type-arg padding: the
                 // `!is_array||!is_array||=== []` entry guard, the pad-loop
                 // `$i < count($params)` bound + the no-default `break` (a

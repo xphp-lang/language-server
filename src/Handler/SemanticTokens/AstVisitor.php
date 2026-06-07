@@ -168,9 +168,15 @@ final class AstVisitor
                     $genericDepth++;
                 } elseif ($lastSignificantTokenId === T_STRING
                     && self::peekIsUppercaseIdent($tokens, $i + 1)
+                    && self::nameBeforeAngleIsDeclaration($tokens, $i)
                 ) {
-                    // Declaration clause: `class Box<T>`, `function f<T>` --
-                    // the bare `<` follows the declared name (T_STRING).
+                    // Declaration clause: `class Box<T>`, `function f<T>` -- the
+                    // bare `<` follows the declared name (T_STRING), which is
+                    // itself preceded by a `class` / `interface` / `trait` /
+                    // `function` keyword. Requiring that keyword keeps a
+                    // bareword comparison whose left side ends in a name --
+                    // `Foo::CONST < Bar`, `MY_CONST < Other` -- from being
+                    // mistaken for a generic declaration.
                     $genericDepth = 1;
                 } elseif (($lastSignificantTokenId === T_FN || $lastSignificantTokenId === T_FUNCTION)
                     && self::peekIsUppercaseIdent($tokens, $i + 1)
@@ -316,6 +322,51 @@ final class AstVisitor
             return false;
         }
         return false;
+    }
+
+    /**
+     * Given the index of a `<`, decide whether the name immediately before it is
+     * a generic *declaration* name -- i.e. preceded by a `class` / `interface` /
+     * `trait` / `function` keyword (`class Box<T>`, `function f<T>`).
+     * This distinguishes a real declaration clause from a comparison whose left
+     * operand ends in a bareword (`Foo::CONST < Bar`, `MY_CONST < Other`), which
+     * must not open a clause.
+     *
+     * @param array<int, \PhpToken> $tokens
+     */
+    private static function nameBeforeAngleIsDeclaration(array $tokens, int $angleIdx): bool
+    {
+        // The caller has already established that the significant token before
+        // `<` is the declared name (a T_STRING). Step back past it to the token
+        // before the name; a real declaration has its keyword there.
+        $nameIdx = self::previousSignificant($tokens, $angleIdx - 1);
+        $keywordIdx = self::previousSignificant($tokens, $nameIdx - 1);
+        if ($keywordIdx < 0) {
+            return false;
+        }
+        return in_array(
+            $tokens[$keywordIdx]->id,
+            [T_CLASS, T_INTERFACE, T_TRAIT, T_FUNCTION],
+            true,
+        );
+    }
+
+    /**
+     * Index of the nearest significant (non-whitespace/comment) token at or
+     * before $from, or -1 if none.
+     *
+     * @param array<int, \PhpToken> $tokens
+     */
+    private static function previousSignificant(array $tokens, int $from): int
+    {
+        for ($i = $from; $i >= 0; $i--) {
+            $t = $tokens[$i];
+            if ($t->id >= 256 && in_array($t->id, [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            return $i;
+        }
+        return -1;
     }
 
     /**
