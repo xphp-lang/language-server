@@ -27,6 +27,18 @@ Feature: Semantic tokens
     When I request "textDocument/semanticTokens/full" for "/closure.xphp"
     Then a "typeParameter" token covers "T" in "/closure.xphp"
 
+  Scenario: Highlight every type argument of a turbofish call, lowercase scalar included
+    Given the file at "/turbofish.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $m = new Map::<int, User>();
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/semanticTokens/full" for "/turbofish.xphp"
+    Then a "typeParameter" token covers "int" in "/turbofish.xphp"
+    And a "typeParameter" token covers "User" in "/turbofish.xphp"
+
   Scenario: Highlight an interpolated variable inside a double-quoted string
     Given the file at "/Str.xphp" contains the following lines:
       """

@@ -113,6 +113,93 @@ final class WorkspaceAnalyzerTest extends TestCase
         self::assertSame([], $data['implementsInserts']);
     }
 
+    public function testCompositeBoundImplementInsertsSkipLeavesSatisfiedViaHierarchy(): void
+    {
+        // `Box<T : Animal & Comparable>`. `Pig extends Beast` where `Beast`
+        // implements Animal -> Pig satisfies Animal via its parent but not
+        // Comparable. Only the genuinely-missing leaf (Comparable) should get
+        // an "implement" fix; the parent-satisfied Animal must not (the literal
+        // direct-`implements` scan would have wrongly offered it).
+        $files = $this->parseFiles([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            interface Animal {}
+            interface Comparable {}
+            class Box<T : Animal & Comparable> {}
+            PHP,
+            '/Beast.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Beast implements Animal {}
+            PHP,
+            '/Pig.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Pig extends Beast {}
+            PHP,
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $x = new Box::<Pig>();
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        self::assertCount(1, $diagnostics['/Use.xphp']);
+        $data = $diagnostics['/Use.xphp'][0]->data;
+        self::assertIsArray($data);
+        self::assertCount(1, $data['implementsInserts'], 'only the unsatisfied leaf gets an implement fix');
+        self::assertSame('App\\Comparable', $data['implementsInserts'][0]['leaf']);
+    }
+
+    public function testEmptyTurbofishOnNonDefaultedTemplateReportsArityDiagnostic(): void
+    {
+        // `new Box::<>()` on `class Box<T>` (no default) is an invalid
+        // instantiation -- the vendor registry rejects the zero-arg call. The
+        // empty turbofish must NOT be silently skipped as "not a generic call".
+        $files = $this->parseFiles([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Box<T> {}
+            PHP,
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $x = new Box::<>();
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        self::assertCount(1, $diagnostics['/Use.xphp']);
+        self::assertStringContainsString('no default', $diagnostics['/Use.xphp'][0]->message);
+    }
+
+    public function testEmptyTurbofishOnFullyDefaultedTemplateProducesNoDiagnostic(): void
+    {
+        // `new Box::<>()` on `class Box<T = User>` is valid -- T defaults to User.
+        $files = $this->parseFiles([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Box<T = User> {}
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $x = new Box::<>();
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        self::assertSame([], $diagnostics['/Use.xphp']);
+    }
+
     public function testBoundViolationOnUnknownClassReportsDistinctMessage(): void
     {
         $files = $this->parseFiles([
@@ -199,6 +286,40 @@ final class WorkspaceAnalyzerTest extends TestCase
             class Wrapper<T>
             {
                 public Box<T> $boxed;
+            }
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+        self::assertSame([], $diagnostics['/Box.xphp']);
+        self::assertSame([], $diagnostics['/Wrapper.xphp']);
+    }
+
+    public function testNonConcreteArgOnBoundedTemplateInGenericBodyIsNotFlagged(): void
+    {
+        // The concrete-arg precheck in genericInstantiation must skip an
+        // instantiation whose arg is still a type-param. With a BOUNDED template
+        // (`Box<T : Animal>`) referenced as `Box<U>` inside a generic body,
+        // skipping the precheck would let the bound be checked against the
+        // non-concrete `U` and emit a FALSE "bound violated" diagnostic -- so
+        // this pins the precheck's real purpose (not just an optimization).
+        $files = $this->parseFiles([
+            '/Animal.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            interface Animal {}
+            PHP,
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Box<T : Animal> { public T $item; }
+            PHP,
+            '/Wrapper.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Wrapper<U>
+            {
+                public Box<U> $boxed;
             }
             PHP,
         ]);

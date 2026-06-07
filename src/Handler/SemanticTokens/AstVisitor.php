@@ -179,14 +179,19 @@ final class AstVisitor
                     // `fn<T>(…)`, `function<T>(…)` -- the `<` follows the
                     // `fn` / `function` keyword (no name between).
                     $genericDepth = 1;
-                } elseif ($lastSignificantTokenId === T_DOUBLE_COLON
-                    && self::peekIsUppercaseIdent($tokens, $i + 1)
-                ) {
+                } elseif ($lastSignificantTokenId === T_DOUBLE_COLON) {
                     // Call-site turbofish: `Foo::<T>`, `static::<T>`,
-                    // `$obj->m::<T>` -- the `<` follows the `::` of `::<`. The
-                    // receiver token before `::` may be T_STRING (`Foo`,
-                    // `self`, `parent`) or T_STATIC (`static`); either way the
-                    // significant token immediately before `<` is the `::`.
+                    // `$obj->m::<T>` -- the `<` follows the `::` of `::<`. A `::`
+                    // immediately before a `<` only ever occurs in a turbofish
+                    // (a normal `::` member access is followed by a name, `$`,
+                    // `{`, or `class`, never `<`), so this is unambiguous and
+                    // needs no uppercase look-ahead. That matters: the first
+                    // type-arg may be a lowercase scalar (`Box::<int>`,
+                    // `Map::<int, User>`), which an uppercase-only heuristic
+                    // would wrongly reject -- closing the whole clause and
+                    // dropping every arg's token. Opening on the empty
+                    // `Foo::<>` is harmless: the next `>` closes it immediately
+                    // with nothing classified inside.
                     $genericDepth = 1;
                 }
             } elseif (!$isNamedToken && $token->text === '>' && $genericDepth > 0) {
