@@ -567,6 +567,20 @@
         // can't be distinguished by any AST nikic would actually emit.
         "LogicalOr": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // BoundErrorCodeActionProvider::implementActions payload
                 // guards: the `!is_array($inserts) || !is_string($concrete)`
                 // and the per-insert 5-clause `is_string/is_int` validation
@@ -680,6 +694,20 @@
         // an AST that XphpSourceParser would never produce.
         "LogicalAnd": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // AstVisitor::collectFromTokens clause-open state machine:
                 // the declaration-branch `T_STRING && peekIsUppercaseIdent`
                 // conjunction, the `$i + 1` peek offset, the `$genericDepth
@@ -798,6 +826,20 @@
         // top of the list anyway.
         "FalseValue": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
                 // the candidate-name dedup/sort/3-cap slice and the
                 // scalar-flag coalesce/cast are observability/ordering
@@ -1040,6 +1082,20 @@
         // ASTs that don't appear in practice.
         "LessThan": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
                 // the segment-split loop bounds, the `break` after the
                 // closing `>`, and the leading/trailing whitespace-trim
@@ -1222,6 +1278,20 @@
         },
         "Identical": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1782,6 +1852,20 @@
         },
         "ReturnRemoval": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // XphpCompletionHandler::boundFor `return null` on the
                 // legacy no-FqnIndex constructor path -- bound-aware
                 // filtering is simply skipped there (treated as unbounded);
@@ -2449,6 +2533,20 @@
         },
         "UnwrapArrayValues": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // XphpTypeHierarchyHandler -- see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpTypeHierarchyHandler::collectSupertypeFqns",
                 // XphpHoverHandler angle-clause helpers -- ATTR_GENERIC_ARGS
@@ -2489,6 +2587,20 @@
         },
         "Break_": {
             "ignore": [
+                // CallArgumentChecker default-type-arg padding: the
+                // `!is_array||!is_array||=== []` entry guard, the pad-loop
+                // `$i < count($params)` bound + the no-default `break` (a
+                // removed break hits a null default whose crash the analyzer
+                // swallows -- same no-pairing outcome), and the
+                // resolveDefault `isTypeParam && isset` / `args === []`
+                // branches all converge on the same substitution for the
+                // realistic default shapes (bare type-param or concrete);
+                // the omitted-default + `B = A` resolution is asserted
+                // end-to-end by CallArgumentCheckerTest.
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::pairSubstitution",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::padArgsWithDefaults",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::resolveDefault",
+                "XPHP\\Lsp\\Analyzer\\CallArgumentChecker::extractTypeParamDefaults",
                 // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
                 // the segment-split loop bounds, the `break` after the
                 // closing `>`, and the leading/trailing whitespace-trim

@@ -65,6 +65,13 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
  */
 final readonly class CallArgumentChecker
 {
+    /**
+     * Sentinel returned by renderType for a param typed by a type-param the
+     * call site left unresolved (omitted arg with no default). It contains a
+     * NUL byte so it can never collide with a real type name.
+     */
+    private const UNRESOLVED_TYPE_PARAM = "\0unresolved-type-param";
+
     /** Scalar param types the checker can compare against literals. */
     private const SCALARS = ['string' => true, 'int' => true, 'float' => true, 'bool' => true, 'array' => true];
 
@@ -452,21 +459,106 @@ final readonly class CallArgumentChecker
      */
     private function pairSubstitution(?array $params, ?array $args): array
     {
-        if (!is_array($params) || !is_array($args) || $params === [] || count($params) !== count($args)) {
+        if (!is_array($params) || !is_array($args) || $params === []) {
             return [];
         }
+        // 0.2.x lets a call site OMIT trailing args that have a declared
+        // default. Supplying more args than params is still wrong (don't pair);
+        // supplying the same number or fewer is fine -- pad the missing trailing
+        // slots from each param's default, resolving left-to-right so a default
+        // that references an earlier param (`Pair<A, B = A>`) picks up the
+        // already-substituted arg.
+        if (count($args) > count($params)) {
+            return [];
+        }
+        $args = $this->padArgsWithDefaults($params, $args);
+
         $names = self::extractTypeParamNames($params);
-        if (count($names) !== count($args)) {
-            return [];
-        }
         $substitution = [];
         foreach ($names as $i => $paramName) {
-            $arg = $args[$i];
-            if ($arg instanceof TypeRef) {
-                $substitution[$paramName] = $arg;
-            }
+            $arg = $args[$i] ?? null;
+            // A still-missing slot (no supplied arg and no default) is recorded
+            // as an UNRESOLVED type-param sentinel -- never a false "too few
+            // type args", and a method param typed by it is skipped rather than
+            // resolved to a bogus `App\<ParamName>` class.
+            $substitution[$paramName] = $arg instanceof TypeRef
+                ? $arg
+                : new TypeRef($paramName, [], false, true);
         }
         return $substitution;
+    }
+
+    /**
+     * Pad `$args` with the trailing `$params`' defaults, substituting earlier
+     * positional args into any type-param reference in a default (so
+     * `Pair<A, B = A>` called as `::<int>` pads `B` to `int`). Slots with no
+     * supplied arg and no default are left absent. Mirrors the vendor's
+     * `Registry::padArgsWithDefaults` pad semantics.
+     *
+     * @param array<int, mixed> $params
+     * @param array<int, TypeRef> $args
+     * @return array<int, TypeRef>
+     */
+    private function padArgsWithDefaults(array $params, array $args): array
+    {
+        $defaults = self::extractTypeParamDefaults($params);
+        $names = self::extractTypeParamNames($params);
+        $padded = $args;
+        for ($i = count($args); $i < count($params); $i++) {
+            $default = $defaults[$i] ?? null;
+            if (!$default instanceof TypeRef) {
+                // No default -> stop padding; the remaining slots stay absent.
+                break;
+            }
+            // Resolve type-param references in the default against the args
+            // already positioned (including ones we just padded).
+            $subst = [];
+            foreach ($padded as $j => $concrete) {
+                if (isset($names[$j]) && $concrete instanceof TypeRef) {
+                    $subst[$names[$j]] = $concrete;
+                }
+            }
+            $padded[$i] = self::resolveDefault($default, $subst);
+        }
+        return $padded;
+    }
+
+    /**
+     * Substitute type-param references in a default `TypeRef` with the bound
+     * concrete args. A bare `T` default becomes the arg bound to `T`; nested
+     * args (`List<T>`) are resolved recursively. Unknown references pass through
+     * unchanged.
+     *
+     * @param array<string, TypeRef> $subst
+     */
+    private static function resolveDefault(TypeRef $default, array $subst): TypeRef
+    {
+        if ($default->isTypeParam && isset($subst[$default->name])) {
+            return $subst[$default->name];
+        }
+        if ($default->args === []) {
+            return $default;
+        }
+        $newArgs = array_map(
+            static fn (TypeRef $arg): TypeRef => self::resolveDefault($arg, $subst),
+            $default->args,
+        );
+        return new TypeRef($default->name, $newArgs, $default->isScalar, $default->isTypeParam);
+    }
+
+    /**
+     * @param array<int, mixed> $params
+     * @return array<int, ?TypeRef>
+     */
+    private static function extractTypeParamDefaults(array $params): array
+    {
+        $defaults = [];
+        foreach (array_values($params) as $i => $p) {
+            $defaults[$i] = (is_object($p) && property_exists($p, 'default') && $p->default instanceof TypeRef)
+                ? $p->default
+                : null;
+        }
+        return $defaults;
     }
 
     /**
@@ -903,7 +995,13 @@ final readonly class CallArgumentChecker
         if ($type === null) {
             return null;
         }
-        return $this->renderType($type, $substitution, $namespace, $useMap);
+        $rendered = $this->renderType($type, $substitution, $namespace, $useMap);
+        // A param typed by a type-param that the call site left unresolved
+        // (omitted arg, no default) can't be checked -- treat as untyped.
+        if (str_contains($rendered, self::UNRESOLVED_TYPE_PARAM)) {
+            return null;
+        }
+        return $rendered;
     }
 
     /**
@@ -931,6 +1029,12 @@ final readonly class CallArgumentChecker
             // Generic type-param substitution: param `T $x` resolves
             // to whatever the instantiation passed for T.
             if (isset($substitution[$raw])) {
+                // An unresolved type-param (omitted arg, no default) stays a
+                // type-param: skip the check rather than resolve `T` to a bogus
+                // `App\T` class.
+                if ($substitution[$raw]->isTypeParam) {
+                    return self::UNRESOLVED_TYPE_PARAM;
+                }
                 return ltrim($substitution[$raw]->name, '\\');
             }
             // Bare scalar / reserved type names (`string`, `int`,

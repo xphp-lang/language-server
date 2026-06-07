@@ -126,6 +126,111 @@ final class CallArgumentCheckerTest extends TestCase
         self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
     }
 
+    public function testOmittedTrailingDefaultSubstitutesIntoParamType(): void
+    {
+        // `Box<T = User>` instantiated as `new Box::<>()` -- T defaults to User,
+        // so `add(T $item)` accepts a User and rejects a Tag.
+        $diagnostics = $this->checkWorkspace([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Box<T = User> {
+                public function add(T $item): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Tag.xphp' => "<?php\nnamespace App;\nfinal class Tag {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $b = new Box::<>();
+            $b->add(new Tag());
+            PHP,
+        ]);
+
+        $diags = self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch);
+        self::assertCount(1, $diags, 'T defaulted to User; passing a Tag mismatches');
+        self::assertStringContainsString('App\\User', $diags[0]->message);
+        self::assertStringContainsString('App\\Tag', $diags[0]->message);
+    }
+
+    public function testOmittedDefaultAcceptsMatchingArgument(): void
+    {
+        $diagnostics = $this->checkWorkspace([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Box<T = User> {
+                public function add(T $item): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $b = new Box::<>();
+            $b->add(new User());
+            PHP,
+        ]);
+
+        self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
+    }
+
+    public function testDefaultReferencingEarlierParamResolvesToSuppliedArg(): void
+    {
+        // `Pair<A, B = A>` called `::<User>` -- B resolves to A's arg (User),
+        // so `setSecond(B $x)` rejects a Tag.
+        $diagnostics = $this->checkWorkspace([
+            '/Pair.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Pair<A, B = A> {
+                public function setSecond(B $x): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Tag.xphp' => "<?php\nnamespace App;\nfinal class Tag {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $p = new Pair::<User>();
+            $p->setSecond(new Tag());
+            PHP,
+        ]);
+
+        $diags = self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch);
+        self::assertCount(1, $diags, 'B = A resolves to User; passing a Tag mismatches');
+        self::assertStringContainsString('App\\User', $diags[0]->message);
+    }
+
+    public function testMissingArgWithNoDefaultIsNotFlagged(): void
+    {
+        // `Pair<A, B>` called with one arg and no default for B -- B stays
+        // unpaired, so the method param typed B isn't checked (no false
+        // positive), and a correctly-typed A arg is accepted.
+        $diagnostics = $this->checkWorkspace([
+            '/Pair.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Pair<A, B> {
+                public function setFirst(A $x): void {}
+                public function setSecond(B $x): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Tag.xphp' => "<?php\nnamespace App;\nfinal class Tag {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $p = new Pair::<User>();
+            $p->setSecond(new Tag());
+            PHP,
+        ]);
+
+        // B is unpaired (no arg, no default) -> setSecond(B) isn't checked.
+        self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
+    }
+
     public function testFlagsScalarLiteralPassedToStaticMethod(): void
     {
         $diagnostics = $this->checkWorkspace([
