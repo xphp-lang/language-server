@@ -299,16 +299,11 @@ final readonly class WorkspaceAnalyzer
                 if (!$node instanceof Name) {
                     return null;
                 }
-                $args = $node->getAttribute(XphpSourceParser::ATTR_GENERIC_ARGS);
-                $fqn = $node->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
-                if (!is_array($args) || $args === [] || !is_string($fqn)) {
+                $instantiation = WorkspaceAnalyzer::genericInstantiation($node);
+                if ($instantiation === null) {
                     return null;
                 }
-                foreach ($args as $a) {
-                    if (!$a->isConcrete()) {
-                        return null;
-                    }
-                }
+                [$args, $fqn] = $instantiation;
                 try {
                     $this->registry->recordInstantiation($fqn, $args);
                 } catch (RuntimeException $e) {
@@ -360,6 +355,36 @@ final readonly class WorkspaceAnalyzer
         $traverser = new NodeTraverser();
         $traverser->addVisitor($visitor);
         $traverser->traverse($ast);
+    }
+
+    /**
+     * Extract the `[concrete type args, template FQN]` pair off a generic
+     * instantiation `Name`, or null when the node is not one we should record.
+     *
+     * A non-turbofish Name has the attributes absent (null); an empty turbofish
+     * `new Box::<>()` has `ATTR_GENERIC_ARGS` present-but-empty (`[]`) -- a real
+     * instantiation that must still be validated (the vendor Registry raises the
+     * arity error when a non-defaulted parameter has no arg), so we only bail
+     * when the attribute is absent. `ATTR_GENERIC_ARGS` and `ATTR_TEMPLATE_FQN`
+     * are stamped together by XphpSourceParser, so the guard's two clauses are
+     * jointly necessary. Args that aren't fully concrete (an unresolved
+     * type-param) aren't a real specialization and are skipped.
+     *
+     * @return array{0: list<mixed>, 1: string}|null TypeRef[] and the template FQN
+     */
+    public static function genericInstantiation(Name $node): ?array
+    {
+        $args = $node->getAttribute(XphpSourceParser::ATTR_GENERIC_ARGS);
+        $fqn = $node->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
+        if (!is_array($args) || !is_string($fqn)) {
+            return null;
+        }
+        foreach ($args as $a) {
+            if (!$a->isConcrete()) {
+                return null;
+            }
+        }
+        return [$args, $fqn];
     }
 
     /**
@@ -447,6 +472,14 @@ final readonly class WorkspaceAnalyzer
         if (!$concreteIsScalar && !$bound instanceof BoundUnion) {
             $entry = $openClasses[$concrete] ?? null;
             foreach ($boundLeaves as $leaf) {
+                // Only leaves the concrete does NOT already satisfy are
+                // "missing". A leaf met via a parent class (`extends`) or a
+                // transitively-implemented interface needs no `implements` edit;
+                // the hierarchy oracle catches those, whereas implementsInsert
+                // only scans the class's own direct `implements` list.
+                if ($isSubtype($concrete, $leaf)) {
+                    continue;
+                }
                 $insert = self::implementsInsert($entry, $leaf);
                 if ($insert !== null) {
                     $implementsInserts[] = ['leaf' => $leaf] + $insert;

@@ -231,6 +231,37 @@ final class CallArgumentCheckerTest extends TestCase
         self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
     }
 
+    public function testTooManyTypeArgsDoesNotFalselyFlagMethodArgument(): void
+    {
+        // `Pair<A, B>` instantiated with THREE type args is an invalid
+        // instantiation. No method param typed by A or B may resolve to a bogus
+        // `App\A` / `App\B` class (which produced a false "argument expects
+        // App\B" mismatch) -- the over-supplied call binds EVERY param to an
+        // unresolved sentinel, so both method args are skipped. Exercising the
+        // second param `B` (not just `A`) guards the whole substitution.
+        $diagnostics = $this->checkWorkspace([
+            '/Pair.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Pair<A, B> {
+                public function setFirst(A $x): void {}
+                public function setSecond(B $x): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Tag.xphp' => "<?php\nnamespace App;\nfinal class Tag {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $p = new Pair::<User, Tag, User>();
+            $p->setFirst(new User());
+            $p->setSecond(new Tag());
+            PHP,
+        ]);
+
+        self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
+    }
+
     public function testInstanceMethodTurbofishAppliesTypeArgToCheck(): void
     {
         // `$c->add::<User>(...)` -- the method-level turbofish binds T=User on

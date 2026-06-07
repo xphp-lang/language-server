@@ -261,10 +261,11 @@ final class AstVisitorTest extends TestCase
     public function testStaticCallTurbofishPaintsTypeArg(): void
     {
         // Util::identity::<int>(42) -- the call-site turbofish opens on the
-        // `<` after `::`; `int` inside is typeParameter.
-        $source = "<?php\nUtil::identity::<Plastic>(\$x);";
+        // `<` after `::`; the lowercase scalar `int` inside is typeParameter
+        // (the `::` makes the clause unambiguous against `<` comparison).
+        $source = "<?php\nUtil::identity::<int>(\$x);";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'int', 'typeParameter');
     }
 
     public function testStaticReceiverTurbofishPaintsTypeArg(): void
@@ -364,15 +365,26 @@ final class AstVisitorTest extends TestCase
         self::assertEmpty($typeParamSpecs);
     }
 
-    public function testTurbofishWithLowercaseFirstArgDoesNotOpenClause(): void
+    public function testTurbofishWithLowercaseScalarFirstArgOpensClause(): void
     {
-        // `Foo::<count(...)` -- the peek after `::<` is lowercase, so the
-        // uppercase-ident guard rejects it and no clause opens. Locks the
-        // `peekIsUppercaseIdent` conjunction on the T_DOUBLE_COLON branch.
-        $source = "<?php\nFoo::<count;";
+        // `Box::<int>()` -- the `::` anchor makes the clause unambiguous, so a
+        // lowercase scalar first arg MUST open it and be painted. (The
+        // uppercase-ident guard belongs to the bare-`<` declaration branch, not
+        // the turbofish branch, where it would drop the whole clause.)
+        $source = "<?php\nnew Box::<int>();";
         $specs = $this->collect($source);
-        $typeParamSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'typeParameter');
-        self::assertEmpty($typeParamSpecs);
+        $this->assertTokenSubstring($specs, $source, 'int', 'typeParameter');
+    }
+
+    public function testTurbofishMultipleArgsLowercaseFirstHighlightsAll(): void
+    {
+        // `Map::<int, User>()` -- a lowercase first arg must not suppress the
+        // whole clause: both the scalar `int` and the class `User` in the later
+        // slot are type arguments and must be painted.
+        $source = "<?php\nnew Map::<int, User>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'int', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'User', 'typeParameter');
     }
 
     public function testTurbofishClauseClosesSoTrailingNameIsNotTypeParam(): void
@@ -419,9 +431,21 @@ final class AstVisitorTest extends TestCase
 
     public function testLowercaseFunctionCallComparisonIsNotMisclassified(): void
     {
-        // The lookahead-uppercase heuristic rejects `count(` (lowercase
-        // first char) so `< count(` doesn't open a clause.
+        // `$size < count(...)` -- the `<` follows a T_VARIABLE (and there is no
+        // `::` before it), so none of the clause-opener branches fire. The
+        // comparison is never mistaken for a turbofish.
         $source = "<?php\nif (\$size < count(\$items)) { return 0; }";
+        $specs = $this->collect($source);
+        $typeParamSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'typeParameter');
+        self::assertEmpty($typeParamSpecs);
+    }
+
+    public function testLessThanBeforeClassNameIsNotMistakenForTurbofish(): void
+    {
+        // `$x < Foo` -- the `<` follows a T_VARIABLE with no `::` before it, so
+        // it is a comparison, not a turbofish. Only a `::`-anchored `<` opens
+        // the call-site clause; the bareword `Foo` must NOT be a typeParameter.
+        $source = "<?php\n\$ok = \$x < Foo;";
         $specs = $this->collect($source);
         $typeParamSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'typeParameter');
         self::assertEmpty($typeParamSpecs);

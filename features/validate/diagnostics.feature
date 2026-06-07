@@ -75,6 +75,23 @@ Feature: Diagnostics
     Then a "xphp.bound" diagnostic is reported saying "Generic bound violated"
     And the "xphp.bound" diagnostic underlines "Box"
 
+  Scenario: Report an empty turbofish on a template with no default
+    Given the file at "/Box.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<T> {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $x = new Box::<>();
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Use.xphp" for diagnostics
+    Then a "xphp.bound" diagnostic is reported saying "no default"
+
   Scenario: Report a constructor argument-type mismatch
     Given the file at "/StringableBox.xphp" contains the following lines:
       """

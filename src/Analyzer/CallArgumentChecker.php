@@ -463,17 +463,27 @@ final readonly class CallArgumentChecker
             return [];
         }
         // 0.2.x lets a call site OMIT trailing args that have a declared
-        // default. Supplying more args than params is still wrong (don't pair);
-        // supplying the same number or fewer is fine -- pad the missing trailing
-        // slots from each param's default, resolving left-to-right so a default
-        // that references an earlier param (`Pair<A, B = A>`) picks up the
-        // already-substituted arg.
+        // default. Supplying the same number or fewer is fine -- pad the missing
+        // trailing slots from each param's default, resolving left-to-right so a
+        // default that references an earlier param (`Pair<A, B = A>`) picks up
+        // the already-substituted arg.
+        $names = self::extractTypeParamNames($params);
+
+        // Supplying MORE args than params is an invalid instantiation. Don't
+        // pair positionally (that would bind method params to mismatched args);
+        // instead bind every param to an unresolved-type-param sentinel so a
+        // method param typed by one is skipped rather than resolved to a bogus
+        // `App\<ParamName>` class (which surfaced as a false "argument N expects
+        // App\T" mismatch). The arity itself is the vendor's concern.
         if (count($args) > count($params)) {
-            return [];
+            $substitution = [];
+            foreach ($names as $paramName) {
+                $substitution[$paramName] = new TypeRef($paramName, [], false, true);
+            }
+            return $substitution;
         }
         $args = $this->padArgsWithDefaults($params, $args);
 
-        $names = self::extractTypeParamNames($params);
         $substitution = [];
         foreach ($names as $i => $paramName) {
             $arg = $args[$i] ?? null;
