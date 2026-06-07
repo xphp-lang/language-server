@@ -71,7 +71,8 @@ test suite; full descriptions to fold into [`README.md`](../README.md#features))
   of a union). Default type arguments (`class Box<T = X>`,
   `class Pair<A, B = A>`) may be omitted at a call site without a false
   "missing type argument", with the effective type substituted into parameter
-  checks.
+  checks. Variance markers (`+T` covariant, `-T` contravariant) are shown in
+  hover.
 - **Argument-type checker V2** -- a new `xphp.arg-mismatch` diagnostic extends
   the constructor check to `$obj->m(...)`, `Cls::m(...)`, and `freeFn(...)`, with
   conservative "simple-locals" inference for `$var` arguments assigned from a
