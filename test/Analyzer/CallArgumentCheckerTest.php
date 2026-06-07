@@ -231,6 +231,72 @@ final class CallArgumentCheckerTest extends TestCase
         self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
     }
 
+    public function testInstanceMethodTurbofishAppliesTypeArgToCheck(): void
+    {
+        // `$c->add::<User>(...)` -- the method-level turbofish binds T=User on
+        // the call, so passing a Tag mismatches.
+        $diagnostics = $this->checkWorkspace([
+            '/Holder.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Holder {
+                public function add<T>(T $item): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Tag.xphp' => "<?php\nnamespace App;\nfinal class Tag {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $h = new Holder();
+            $h->add::<User>(new Tag());
+            PHP,
+        ]);
+
+        $diags = self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch);
+        self::assertCount(1, $diags, 'method turbofish T=User; passing a Tag mismatches');
+        self::assertStringContainsString('App\\User', $diags[0]->message);
+        self::assertStringContainsString('App\\Tag', $diags[0]->message);
+    }
+
+    public function testInstanceMethodTurbofishAcceptsMatchingArgument(): void
+    {
+        $diagnostics = $this->checkWorkspace([
+            '/Holder.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class Holder {
+                public function add<T>(T $item): void {}
+            }
+            PHP,
+            '/User.xphp' => "<?php\nnamespace App;\nfinal class User {}\n",
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $h = new Holder();
+            $h->add::<User>(new User());
+            PHP,
+        ]);
+
+        self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
+    }
+
+    public function testVariableTurbofishIsConservativelySkipped(): void
+    {
+        // `$f::<int>(...)` is a variable call with an unknown callee -- it must
+        // NOT produce a false positive (the receiver type is unknown).
+        $diagnostics = $this->checkWorkspace([
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $f = fn ($x) => $x;
+            $f::<int>('not-an-int');
+            PHP,
+        ]);
+
+        self::assertSame([], self::filterByCode($diagnostics['/Use.xphp'], DiagnosticCode::ArgumentMismatch));
+    }
+
     public function testFlagsScalarLiteralPassedToStaticMethod(): void
     {
         $diagnostics = $this->checkWorkspace([
