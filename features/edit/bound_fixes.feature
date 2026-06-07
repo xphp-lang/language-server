@@ -98,3 +98,34 @@ Feature: Quick-fixes for generic bound violations
     When I request code actions for the "xphp.bound" diagnostic in "/Use.xphp"
     Then a code action titled "Change type argument to Tabby" is offered
     And no code action titled "Add implements \App\Cat to None" is offered
+
+  Scenario: An intersection-bound leaf satisfied via a parent class needs no implement fix
+    Given the file at "/Pair.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      interface Animal {}
+      interface Comparable {}
+      class Pair<T : Animal & Comparable> { public T $item; }
+      """
+    And the file at "/Beast.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Beast implements Animal {}
+      """
+    And the file at "/Pig.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Pig extends Beast {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $x = new Pair::<Pig>();
+      """
+    When I request code actions for the "xphp.bound" diagnostic in "/Use.xphp"
+    Then a code action titled "Add implements \App\Comparable to Pig" is offered
+    And no code action titled "Add implements \App\Animal to Pig" is offered

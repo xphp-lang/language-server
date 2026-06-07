@@ -231,3 +231,36 @@ Feature: Argument-type checking across call shapes
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
     Then a "xphp.arg-mismatch" diagnostic is reported saying "expects App\User, got App\Tag"
+
+  Scenario: Supplying too many type arguments is not a false argument mismatch
+    Given the file at "/Box.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<T>
+      {
+          public function add(T $item): void {}
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class User {}
+      """
+    And the file at "/Tag.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class Tag {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $b = new Box::<User, Tag>();
+      $b->add(new User());
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Use.xphp" for diagnostics
+    Then no diagnostics are reported
