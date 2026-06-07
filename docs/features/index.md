@@ -180,6 +180,9 @@ property / native function info, hover renders:
 - Generic `T` resolved to the concrete type, including through
   property fetches (`$item = $box->item` where `$box: Box<Tag>`
   shows `Tag`, not `T`).
+- A type parameter's full upper bound, including composite forms --
+  intersection (`A & B`), union (`A | B`), and F-bounded
+  (`Comparable<T>`).
 
 ### Signature Help
 
@@ -279,6 +282,9 @@ Context-aware completion in every meaningful position:
 - **Type-arg position** (`new Box::<|>(...)`) -- bound-aware
   filtering hides candidates that don't satisfy the slot's declared
   upper bound; scalars are dropped when the bound is class-like.
+  Composite bounds are respected: a candidate must satisfy **every**
+  leaf of an intersection (`T : A & B`) and **any** leaf of a union
+  (`T : A | B`).
 - **Member access** (`$obj->`) and **static access** (`Cls::`) --
   methods, properties, and constants from the receiver.
 - **Static property access** (`Cls::$`) -- a distinct context kind

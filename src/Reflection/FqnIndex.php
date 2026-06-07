@@ -23,6 +23,7 @@ use Throwable;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Lsp\Stderr;
+use XPHP\Transpiler\Monomorphize\BoundExpr;
 use XPHP\Transpiler\Monomorphize\TypeParam;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
@@ -544,6 +545,57 @@ final class FqnIndex
         // Empty bounds == not a generic class (the per-param bound list always
         // has >=1 slot for a real generic); keep the null contract for those.
         return ($decl === null || $decl['bounds'] === []) ? null : $decl['bounds'];
+    }
+
+    /**
+     * Look up the full `BoundExpr` tree per slot for a generic class -- the
+     * composite-bound counterpart of `boundsForGenericClass`. Each entry is the
+     * slot's bound expression (leaf / intersection / union / F-bounded) or
+     * `null` when the slot is unbounded.
+     *
+     * Open-doc declarations win over filesystem copies. For a filesystem-only
+     * generic class the declaring file is re-parsed on demand, since the bound
+     * tree (unlike a single FQN) isn't cached in the lightweight filesystem
+     * index. Returns `null` when no generic-class declaration is known.
+     *
+     * @return list<?BoundExpr>|null
+     */
+    public function boundExprsForGenericClass(string $fqn, ?string $origin = null): ?array
+    {
+        $needle = ltrim($fqn, '\\');
+        if ($needle === '') {
+            return null;
+        }
+        foreach ($this->workspace as $uri => $item) {
+            $result = $this->cache->getOrParse($uri, $item->version, $item->text);
+            if ($result->ast === null) {
+                continue;
+            }
+            foreach (self::collectGenericClassBoundExprs($result->ast) as $boundFqn => $exprs) {
+                if ($boundFqn === $needle) {
+                    return $exprs;
+                }
+            }
+        }
+        // Filesystem fallback: re-parse the declaring file for the bound tree.
+        $decl = $this->selectDecl($needle, $origin);
+        if ($decl === null) {
+            return null;
+        }
+        $source = @file_get_contents($decl['path']);
+        if ($source === false) {
+            return null;
+        }
+        $result = $this->cache->getOrParse('file://' . $decl['path'], -1, $source);
+        if ($result->ast === null) {
+            return null;
+        }
+        foreach (self::collectGenericClassBoundExprs($result->ast) as $boundFqn => $exprs) {
+            if ($boundFqn === $needle) {
+                return $exprs;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1616,6 +1668,63 @@ final class FqnIndex
         $traverser->addVisitor($visitor);
         $traverser->traverse($ast);
         return $visitor->fqns;
+    }
+
+    /**
+     * Collect the full `BoundExpr` tree per slot for each generic class.
+     * Mirrors `collectGenericClassBounds` but preserves the whole bound
+     * expression (intersection / union / F-bounded), not just the first leaf
+     * FQN -- this is what composite-bound completion filtering needs.
+     *
+     * @param list<Node\Stmt> $ast
+     * @return array<string, list<?BoundExpr>>
+     */
+    private static function collectGenericClassBoundExprs(array $ast): array
+    {
+        $visitor = new class extends NodeVisitorAbstract {
+            /** @var array<string, list<?BoundExpr>> */
+            public array $exprs = [];
+
+            private string $currentNamespace = '';
+
+            public function enterNode(Node $node): null
+            {
+                if ($node instanceof Namespace_) {
+                    $this->currentNamespace = $node->name?->toString() ?? '';
+                    return null;
+                }
+                if (!$node instanceof ClassLike || $node->name === null) {
+                    return null;
+                }
+                $params = $node->getAttribute(XphpSourceParser::ATTR_GENERIC_PARAMS);
+                if (!is_array($params) || $params === []) {
+                    return null;
+                }
+                $bounds = [];
+                foreach ($params as $p) {
+                    if ($p instanceof TypeParam) {
+                        $bounds[] = $p->bound;
+                    }
+                }
+                if ($bounds === []) {
+                    return null;
+                }
+                $fqn = $node->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
+                if (!is_string($fqn)) {
+                    $short = $node->name->toString();
+                    $fqn = $this->currentNamespace !== ''
+                        ? $this->currentNamespace . '\\' . $short
+                        : $short;
+                }
+                $this->exprs[$fqn] = $bounds;
+                return null;
+            }
+        };
+
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor($visitor);
+        $traverser->traverse($ast);
+        return $visitor->exprs;
     }
 
     /**

@@ -59,6 +59,42 @@ final class XphpHoverHandlerTest extends TestCase
         self::assertStringContainsString('Stringable', $text);
     }
 
+    public function testHoverOverTypeParamShowsIntersectionBound(): void
+    {
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Pair<T : Animal & Comparable>
+        {
+            public T $item;
+        }
+        XPHP);
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'public T $item', offsetInSearch: strlen('public '));
+
+        self::assertInstanceOf(Hover::class, $hover);
+        $text = $hover->contents->value;
+        // The full intersection bound is rendered, not just the first leaf.
+        self::assertStringContainsString('bounded by', $text);
+        self::assertStringContainsString('\\App\\Animal & \\App\\Comparable', $text);
+    }
+
+    public function testHoverOverTypeParamShowsFBoundedBound(): void
+    {
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Sorted<T : Comparable<T>>
+        {
+            public T $item;
+        }
+        XPHP);
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'public T $item', offsetInSearch: strlen('public '));
+
+        self::assertInstanceOf(Hover::class, $hover);
+        // F-bounded form renders recursively with the inner type-param.
+        self::assertStringContainsString('\\App\\Comparable<T>', $hover->contents->value);
+    }
+
     public function testHoverOverPlainNameReturnsNull(): void
     {
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'

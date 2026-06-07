@@ -110,3 +110,31 @@ Feature: Completion
     When I request completion after "Box::<" at line 2 of "/Use.xphp"
     Then a completion item labeled "Tag" is offered
     And no completion item labeled "Number" is offered
+
+  Scenario: Filter suggestions by a composite intersection bound
+    Given the file at "/Pair.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      interface Animal {}
+      class Pair<T : Animal & \Stringable> {}
+      """
+    And the file at "/Models.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Both implements Animal, \Stringable {
+          public function __toString(): string { return ''; }
+      }
+      class OnlyAnimal implements Animal {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $x = new Pair::<
+      """
+    And the FQN index has been warmed on initialize
+    When I request completion after "Pair::<" at line 2 of "/Use.xphp"
+    Then a completion item labeled "Both" is offered
+    And no completion item labeled "OnlyAnimal" is offered

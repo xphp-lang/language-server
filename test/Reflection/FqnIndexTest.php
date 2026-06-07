@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 final class FqnIndexTest extends TestCase
@@ -517,6 +518,62 @@ final class FqnIndexTest extends TestCase
         $bounds = $index->boundsForGenericClass('Box');
 
         self::assertSame(['Stringable'], $bounds);
+    }
+
+    public function testBoundExprsForGenericClassExposesCompositeFromOpenDoc(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/Pair.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App;\nclass Pair<A : Animal & Comparable> {}\n",
+        ));
+        $index = $this->index($workspace);
+
+        $exprs = $index->boundExprsForGenericClass('App\\Pair');
+
+        self::assertNotNull($exprs);
+        self::assertSame('\\App\\Animal & \\App\\Comparable', BoundExprView::displayString($exprs[0]));
+        self::assertSame(['App\\Animal', 'App\\Comparable'], BoundExprView::leafFqns($exprs[0]));
+    }
+
+    public function testBoundExprsForGenericClassExposesCompositeFromFilesystem(): void
+    {
+        $this->writeFile(
+            'U.xphp',
+            "<?php\nnamespace App;\nclass U<A : Cat | Dog> {}\n",
+        );
+        $index = $this->index(new PhpactorWorkspace());
+
+        $exprs = $index->boundExprsForGenericClass('App\\U');
+
+        self::assertNotNull($exprs);
+        self::assertSame('\\App\\Cat | \\App\\Dog', BoundExprView::displayString($exprs[0]));
+    }
+
+    public function testBoundExprsForGenericClassReturnsNullForUnknown(): void
+    {
+        $index = $this->index(new PhpactorWorkspace());
+        self::assertNull($index->boundExprsForGenericClass('App\\Nope'));
+    }
+
+    public function testBoundExprsForGenericClassStripsLeadingBackslash(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/Pair.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App;\nclass Pair<A : Animal & Comparable> {}\n",
+        ));
+        $index = $this->index($workspace);
+
+        // The leading-backslash form must resolve to the same declaration.
+        self::assertEquals(
+            BoundExprView::displayString($index->boundExprsForGenericClass('App\\Pair')[0]),
+            BoundExprView::displayString($index->boundExprsForGenericClass('\\App\\Pair')[0]),
+        );
     }
 
     public function testClassLikeForNonGenericNonNamespacedClass(): void
