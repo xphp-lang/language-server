@@ -276,6 +276,31 @@ final class AstVisitorTest extends TestCase
         $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
     }
 
+    public function testSelfTurbofishPaintsTypeArg(): void
+    {
+        // `self::<Plastic>()` -- the pseudo-type turbofish opens a clause after
+        // the `::`; `Plastic` inside is a typeParameter.
+        $source = "<?php\nnew self::<Plastic>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+    }
+
+    public function testParentTurbofishPaintsTypeArg(): void
+    {
+        $source = "<?php\nparent::method::<Plastic>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+    }
+
+    public function testStaticReceiverIsClassifiedAsKeyword(): void
+    {
+        // `static` before `::<` stays a keyword.
+        $source = "<?php\nstatic::<Plastic>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'static', 'keyword');
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+    }
+
     public function testBareDoubleColonWithoutAngleOpensNothing(): void
     {
         // `Foo::BAR` is a constant access -- no `<` follows the `::`, so no
