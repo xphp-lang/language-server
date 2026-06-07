@@ -21,6 +21,7 @@ use RecursiveIteratorIterator;
 use SplFileInfo;
 use Throwable;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
+use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Lsp\Stderr;
 use XPHP\Transpiler\Monomorphize\TypeParam;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -1589,7 +1590,11 @@ final class FqnIndex
                 $bounds = [];
                 foreach ($params as $p) {
                     if ($p instanceof TypeParam) {
-                        $bounds[] = $p->boundFqn !== null ? ltrim($p->boundFqn, '\\') : null;
+                        // First leaf FQN keeps the existing string contract for
+                        // the completion bound filter; the full expression tree
+                        // is exposed separately for composite-bound support.
+                        $leaves = BoundExprView::leafFqns($p->bound);
+                        $bounds[] = $leaves[0] ?? null;
                     }
                 }
                 if ($bounds === []) {
