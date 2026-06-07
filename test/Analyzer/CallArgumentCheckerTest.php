@@ -89,7 +89,7 @@ final class CallArgumentCheckerTest extends TestCase
             '/Use.xphp' => <<<'PHP'
             <?php
             namespace App;
-            $c = new Collection<User>();
+            $c = new Collection::<User>();
             $c->add(new Tag());
             PHP,
         ]);
@@ -118,7 +118,7 @@ final class CallArgumentCheckerTest extends TestCase
             '/Use.xphp' => <<<'PHP'
             <?php
             namespace App;
-            $c = new Collection<User>();
+            $c = new Collection::<User>();
             $c->add(new User());
             PHP,
         ]);

@@ -7,7 +7,7 @@ Feature: Navigation when there is nothing to find
       """
       <?php
       namespace App;
-      $x = new Missing<int>();
+      $x = new Missing::<int>();
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/definition" on "Missing" at line 2 of "/Use.xphp"

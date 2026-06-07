@@ -23,7 +23,7 @@ Feature: Inlay hints
       <?php
       use App\Containers\Collection;
       use App\Models\User;
-      $users = new Collection<User>();
+      $users = new Collection::<User>();
       $first = $users->first();
       """
     And the FQN index has been warmed on initialize

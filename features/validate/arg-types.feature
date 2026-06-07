@@ -88,7 +88,7 @@ Feature: Argument-type checking across call shapes
       """
       <?php
       namespace App;
-      $c = new Collection<User>();
+      $c = new Collection::<User>();
       $c->add(new Tag());
       """
     And the FQN index has been warmed on initialize

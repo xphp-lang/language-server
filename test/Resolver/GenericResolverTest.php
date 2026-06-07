@@ -31,7 +31,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Collection;
         use App\Models\User;
-        $users = new Collection<User>();
+        $users = new Collection::<User>();
         $user = $users->first();
         XPHP);
 
@@ -53,7 +53,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Collection;
         use App\Models\User;
-        $users = new Collection<User>();
+        $users = new Collection::<User>();
         XPHP);
 
         $resolver = $this->resolver($workspace);
@@ -78,7 +78,7 @@ final class GenericResolverTest extends TestCase
         $this->open($workspace, '/Use.xphp', <<<'XPHP'
         <?php
         use App\Containers\Wrapper;
-        $w = new Wrapper<int>();
+        $w = new Wrapper::<int>();
         $v = $w->value();
         XPHP);
 
@@ -104,7 +104,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Pair;
         use App\Models\User;
-        $p = new Pair<string, User>();
+        $p = new Pair::<string, User>();
         $k = $p->key();
         $v = $p->value();
         XPHP);
@@ -133,12 +133,12 @@ final class GenericResolverTest extends TestCase
 
     public function testUnknownReceiverClassReturnsNull(): void
     {
-        // `$x = new Mystery<int>()` where Mystery isn't declared in any
+        // `$x = new Mystery::<int>()` where Mystery isn't declared in any
         // open document -- ClassLikeLookup misses, resolver yields.
         $workspace = $this->workspace();
         $this->open($workspace, '/Use.xphp', <<<'XPHP'
         <?php
-        $x = new Mystery<int>();
+        $x = new Mystery::<int>();
         XPHP);
 
         $resolver = $this->resolver($workspace);
@@ -148,7 +148,7 @@ final class GenericResolverTest extends TestCase
 
     public function testStaticMethodCallSubstitutesReturnTypeAtCallSite(): void
     {
-        // Phase 1.2: `Util::identity<User>(new User())` -- the method's
+        // Phase 1.2: `Util::identity::<User>(new User())` -- the method's
         // type-param T is bound to User at the call site, so the
         // substituted return type is User.  The resolver previously
         // returned null for this shape; this test pins the new behavior.
@@ -165,7 +165,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Util;
         use App\Models\User;
-        $u = Util::identity<User>(new User());
+        $u = Util::identity::<User>(new User());
         XPHP);
 
         $resolver = $this->resolver($workspace);
@@ -178,7 +178,7 @@ final class GenericResolverTest extends TestCase
 
     public function testStaticMethodCallWithQualifiedClassName(): void
     {
-        // `\App\Util::identity<User>(...)` -- already-qualified class
+        // `\App\Util::identity::<User>(...)` -- already-qualified class
         // names bypass the use map.
         $workspace = $this->workspace();
         $this->open($workspace, '/Util.xphp', <<<'XPHP'
@@ -191,7 +191,7 @@ final class GenericResolverTest extends TestCase
         $this->openUser($workspace);
         $this->open($workspace, '/Use.xphp', <<<'XPHP'
         <?php
-        $u = \App\Util::identity<\App\Models\User>(new \App\Models\User());
+        $u = \App\Util::identity::<\App\Models\User>(new \App\Models\User());
         XPHP);
 
         $resolver = $this->resolver($workspace);
@@ -227,7 +227,7 @@ final class GenericResolverTest extends TestCase
 
     public function testGenericFunctionCallSubstitutesReturnType(): void
     {
-        // Phase 1.3: free-function generic `identity<User>(new User())`.
+        // Phase 1.3: free-function generic `identity::<User>(new User())`.
         // The FuncCall carries ATTR_TEMPLATE_FQN + ATTR_METHOD_GENERIC_ARGS;
         // resolver locates the function via FqnIndex and substitutes T -> User.
         $workspace = $this->workspace();
@@ -241,7 +241,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use function App\identity;
         use App\Models\User;
-        $u = identity<User>(new User());
+        $u = identity::<User>(new User());
         XPHP);
 
         $resolver = $this->resolver($workspace);
@@ -269,7 +269,7 @@ final class GenericResolverTest extends TestCase
             $this->open($workspace, '/Use.xphp', <<<'XPHP'
             <?php
             use App\Models\User;
-            $u = \App\identity<User>(new User());
+            $u = \App\identity::<User>(new User());
             XPHP);
 
             $resolver = $this->resolverWithFilesystem($workspace, $root);
@@ -329,7 +329,7 @@ final class GenericResolverTest extends TestCase
             <?php
             use App\Containers\Collection;
             use App\Models\User;
-            $users = new Collection<User>();
+            $users = new Collection::<User>();
             $user = $users->first();
             XPHP);
 
@@ -547,7 +547,7 @@ final class GenericResolverTest extends TestCase
         <?php
         namespace App\Containers;
         class Repository<T> {
-            public function items(): Collection<T> { return new Collection<T>(); }
+            public function items(): Collection<T> { return new Collection::<T>(); }
         }
         XPHP);
         $this->openUser($workspace);
@@ -555,7 +555,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Repository;
         use App\Models\User;
-        $repo = new Repository<User>();
+        $repo = new Repository::<User>();
         $user = $repo->items()->first();
         XPHP);
 
@@ -576,10 +576,10 @@ final class GenericResolverTest extends TestCase
         <?php
         namespace App\Containers;
         class Wrap<T> {
-            public function inner(): Inner<T> { return new Inner<T>(); }
+            public function inner(): Inner<T> { return new Inner::<T>(); }
         }
         class Inner<T> {
-            public function items(): Collection<T> { return new Collection<T>(); }
+            public function items(): Collection<T> { return new Collection::<T>(); }
         }
         class Collection<T> {
             public function first(): ?T { return null; }
@@ -590,7 +590,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Wrap;
         use App\Models\User;
-        $w = new Wrap<User>();
+        $w = new Wrap::<User>();
         $u = $w->inner()->items()->first();
         XPHP);
 
@@ -615,7 +615,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Collection;
         use App\Models\User;
-        $users = new Collection<User>();
+        $users = new Collection::<User>();
         $fn = function () use ($users) {
             $first = $users->first();
         };
@@ -644,7 +644,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Collection;
         use App\Models\User;
-        $users = new Collection<User>();
+        $users = new Collection::<User>();
         $fn = function () {
             $first = $users->first();
         };
@@ -671,7 +671,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Collection;
         use App\Models\User;
-        $outer = new Collection<User>();
+        $outer = new Collection::<User>();
         $fn = function (Collection<User> $param) use ($outer) {
             $a = $param->first();
             $b = $outer->first();
@@ -704,7 +704,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Collection;
         use App\Models\User;
-        $users = new Collection<User>();
+        $users = new Collection::<User>();
         $user = $users->first();
         XPHP);
 
@@ -830,7 +830,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\StringableBox;
         use App\Models\Tag;
-        $v = new StringableBox<Tag>(new Tag());
+        $v = new StringableBox::<Tag>(new Tag());
         $item = $v->item;
         XPHP));
 
@@ -859,7 +859,7 @@ final class GenericResolverTest extends TestCase
         <?php
         use App\Containers\Box;
         use App\Models\Tag;
-        $b = new Box<Tag>();
+        $b = new Box::<Tag>();
         $item = $b->item;
         XPHP));
 

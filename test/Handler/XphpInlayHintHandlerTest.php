@@ -55,7 +55,7 @@ final class XphpInlayHintHandlerTest extends TestCase
             '/Use.xphp',
             'xphp',
             1,
-            "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection<User>();\n\$first = \$users->first();\n",
+            "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$first = \$users->first();\n",
         ));
 
         $hints = $this->hintsFor($workspace, '/Use.xphp');

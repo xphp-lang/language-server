@@ -36,7 +36,7 @@ final class XphpCompletionHandlerTest extends TestCase
         class Metal {}
         XPHP));
         // Cursor at end of `Box<` line — type-arg position with empty prefix.
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -67,7 +67,7 @@ final class XphpCompletionHandlerTest extends TestCase
         namespace App\Models;
         class Plastic {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\nuse App\\Models\\Plastic;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App;\nuse App\\Models\\Plastic;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -89,7 +89,7 @@ final class XphpCompletionHandlerTest extends TestCase
         namespace App\Models;
         class Plastic {}
         XPHP));
-        $useSource = "<?php\nnamespace App\\Models;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App\\Models;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -111,7 +111,7 @@ final class XphpCompletionHandlerTest extends TestCase
         namespace App\Models;
         class Plastic {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\nuse App\\Models\\Plastic as MyPlastic;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App;\nuse App\\Models\\Plastic as MyPlastic;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -142,7 +142,7 @@ final class XphpCompletionHandlerTest extends TestCase
         namespace App\Other;
         class Plastic {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\nuse App\\Other\\Plastic;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App;\nuse App\\Other\\Plastic;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -173,7 +173,7 @@ final class XphpCompletionHandlerTest extends TestCase
         class Metal {}
         class Wood {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<Pla";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<Pla";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -216,7 +216,7 @@ final class XphpCompletionHandlerTest extends TestCase
         // weakened/inverted (e.g. `=== ''`), the scalar loop would skip every
         // item even though prefix is empty.
         $workspace = new PhpactorWorkspace();
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
 
@@ -232,7 +232,7 @@ final class XphpCompletionHandlerTest extends TestCase
         // the prefix). Without it, every scalar would surface regardless of
         // prefix.
         $workspace = new PhpactorWorkspace();
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<in";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<in";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
 
@@ -259,7 +259,7 @@ final class XphpCompletionHandlerTest extends TestCase
         class Metal {}
         class Stone {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<Pla";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<Pla";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
 
@@ -281,7 +281,7 @@ final class XphpCompletionHandlerTest extends TestCase
         namespace App\Models;
         class Plastic {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<\\";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<\\";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
 
@@ -303,7 +303,7 @@ final class XphpCompletionHandlerTest extends TestCase
         XPHP));
         // Prefix "Deep" is a substring of the FQN but NOT a prefix of the
         // short name "Thing" — must still surface as a candidate.
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<Deep";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<Deep";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
 
@@ -343,7 +343,7 @@ final class XphpCompletionHandlerTest extends TestCase
             XPHP);
 
             $workspace = new PhpactorWorkspace();
-            $useSource = "<?php\nnamespace App;\n\$x = new Box<";
+            $useSource = "<?php\nnamespace App;\n\$x = new Box::<";
             $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
             $list = $this->completeBoundAware($workspace, '/Use.xphp', $useSource, strlen($useSource), $root);
@@ -376,7 +376,7 @@ final class XphpCompletionHandlerTest extends TestCase
     public function testBoundedTypeArgFiltersToSubtypesAndDropsScalars(): void
     {
         // Phase 3: `Box<T: Stringable>` constrains the type arg.  Completion
-        // at `new Box<|` must surface only candidates that satisfy the
+        // at `new Box::<|` must surface only candidates that satisfy the
         // bound (subclasses or implementors of Stringable), drop scalars
         // (a scalar can't be Stringable), and keep classes that don't.
         $workspace = new PhpactorWorkspace();
@@ -393,7 +393,7 @@ final class XphpCompletionHandlerTest extends TestCase
         }
         class Number {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$x = new Box<";
+        $useSource = "<?php\nnamespace App;\n\$x = new Box::<";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->completeBoundAware($workspace, '/Use.xphp', $useSource, strlen($useSource));
@@ -424,7 +424,7 @@ final class XphpCompletionHandlerTest extends TestCase
         }
         class Number {}
         XPHP));
-        $useSource = "<?php\nnamespace App;\n\$x = new Pair<Tag, ";
+        $useSource = "<?php\nnamespace App;\n\$x = new Pair::<Tag, ";
         $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
 
         $list = $this->completeBoundAware($workspace, '/Use.xphp', $useSource, strlen($useSource));

@@ -27,7 +27,7 @@ final class WorkspaceAnalyzerTest extends TestCase
             '/Use.xphp' => <<<'PHP'
             <?php
             namespace App;
-            $x = new Box<int>();
+            $x = new Box::<int>();
             PHP,
         ]);
 
@@ -60,7 +60,7 @@ final class WorkspaceAnalyzerTest extends TestCase
             '/Use.xphp' => <<<'PHP'
             <?php
             namespace App;
-            $x = new Box<Unknown\Thing>();
+            $x = new Box::<Unknown\Thing>();
             PHP,
         ]);
 
@@ -163,7 +163,7 @@ final class WorkspaceAnalyzerTest extends TestCase
             '/Use.xphp' => <<<'PHP'
             <?php
             namespace App;
-            $x = new Box<Tag>();
+            $x = new Box::<Tag>();
             PHP,
         ]);
 
@@ -219,7 +219,7 @@ final class WorkspaceAnalyzerTest extends TestCase
             <?php
             namespace App;
             use App\Models\Tag;
-            $x = new Box<Tag>(new Tag('hi'));
+            $x = new Box::<Tag>(new Tag('hi'));
             PHP,
         ]);
         $hierarchyAsts = $this->parseAstOnly([
@@ -270,7 +270,7 @@ final class WorkspaceAnalyzerTest extends TestCase
             <?php
             namespace App;
             use App\Models\Tag;
-            $x = new Box<Tag>(new Tag());
+            $x = new Box::<Tag>(new Tag());
             PHP,
         ]);
         $hierarchyAsts = $this->parseAstOnly([
@@ -316,7 +316,7 @@ final class WorkspaceAnalyzerTest extends TestCase
             <?php
             namespace App;
             use App\Models\User;
-            $bad = new Box<User>(new User());
+            $bad = new Box::<User>(new User());
             PHP,
         ]);
         $hierarchyAsts = $this->parseAstOnly([

@@ -41,7 +41,7 @@ final class BoundErrorCodeActionProviderTest extends TestCase
         $actions = $this->actionsForUse([
             '/Stringy.xphp' => self::STRINGY,
             '/Box.xphp' => self::BOX,
-            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box<int>();\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box::<int>();\n",
         ]);
 
         $titles = self::titles($actions);
@@ -63,7 +63,7 @@ final class BoundErrorCodeActionProviderTest extends TestCase
             '/Stringy.xphp' => self::STRINGY,
             '/Box.xphp' => self::BOX,
             '/Money.xphp' => "<?php\nnamespace App;\nclass Money {}\n",
-            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box<Money>();\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box::<Money>();\n",
         ]);
 
         $titles = self::titles($actions);
@@ -84,7 +84,7 @@ final class BoundErrorCodeActionProviderTest extends TestCase
         $actions = $this->actionsForUse([
             '/Stringy.xphp' => self::STRINGY,
             '/Pair.xphp' => "<?php\nnamespace App;\nclass Pair<A, B: \\Stringable> { public A \$a; public B \$b; }\n",
-            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Pair<Stringy, int>();\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Pair::<Stringy, int>();\n",
         ]);
 
         $swap = self::actionTitled($actions, 'Change type argument to Stringy');

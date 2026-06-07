@@ -7,7 +7,7 @@ Feature: Hover
       """
       <?php
       namespace App;
-      $x = new Box<Plastic>();
+      $x = new Box::<Plastic>();
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "Box" at line 2 of "/doc.xphp"
