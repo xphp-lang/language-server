@@ -71,3 +71,28 @@ Feature: Go to definition
     When I request "textDocument/definition" on "first" at line 10 of "Use.xphp"
     Then the response points to "Containers/Collection.xphp"
     And the target range covers the "first" method declaration
+
+  Scenario: Jump to a type argument of a self turbofish
+    Given the file at "Models/Plastic.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class Plastic {}
+      """
+    And the file at "SelfUse.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      use App\Models\Plastic;
+      class Crate<T>
+      {
+          public function copy(): Crate
+          {
+              return new self::<Plastic>();
+          }
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/definition" on "Plastic" at line 7 of "SelfUse.xphp"
+    Then the response points to "Models/Plastic.xphp"
+    And the target range covers the "Plastic" class name

@@ -31,7 +31,10 @@ through xphp generics: if `$users` is declared as `Collection<User>`
 and the cursor sits on `$users->first()`, the jump lands on the
 correct `User` method, not on the template's placeholder `T`. Union
 and intersection receivers fan out to a per-constituent picker so
-each branch is reachable individually.
+each branch is reachable individually. The turbofish forms of the
+`self` / `static` / `parent` pseudo-types (`new self::<T>()`,
+`self::method::<T>(...)`) navigate and highlight like any other call
+site.
 
 ### Go to Type Definition
 
