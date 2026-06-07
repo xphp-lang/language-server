@@ -21,6 +21,7 @@ use Phpactor\LanguageServerProtocol\MarkupKind;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\PositionMap;
+use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Lsp\Resolver\PhpHoverResolver;
 use XPHP\Transpiler\Monomorphize\Registry;
 use XPHP\Transpiler\Monomorphize\TypeParam;
@@ -204,8 +205,9 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
                     continue;
                 }
                 $owner = $classLike->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
-                $boundLine = $param->boundFqn !== null
-                    ? sprintf("\n\nbounded by `\\%s`", $param->boundFqn)
+                $boundDisplay = BoundExprView::displayString($param->bound);
+                $boundLine = $boundDisplay !== null
+                    ? sprintf("\n\nbounded by `%s`", $boundDisplay)
                     : '';
                 return sprintf(
                     "**Type parameter `%s`** of `%s`%s",

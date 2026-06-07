@@ -11,6 +11,7 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitorAbstract;
 use RuntimeException;
 use XPHP\Lsp\PositionMap;
+use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Transpiler\Monomorphize\Registry;
 use XPHP\Transpiler\Monomorphize\TypeHierarchy;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -397,11 +398,13 @@ final readonly class WorkspaceAnalyzer
 
         // Locate the first type-param whose bound the supplied arg violates.
         $index = null;
+        $isSubtype = static fn (string $candidate, string $boundFqn): bool =>
+            $hierarchy->isSubtype($candidate, $boundFqn) === true;
         foreach ($typeParams as $i => $param) {
-            if ($param->boundFqn === null) {
+            if ($param->bound === null) {
                 continue;
             }
-            if ($hierarchy->isSubtype($args[$i]->name, $param->boundFqn) !== true) {
+            if (!BoundExprView::isSatisfiedBy($args[$i]->name, $param->bound, $isSubtype)) {
                 $index = $i;
                 break;
             }
@@ -410,7 +413,10 @@ final readonly class WorkspaceAnalyzer
             return null;
         }
 
-        $bound = ltrim((string) $typeParams[$index]->boundFqn, '\\');
+        // The single-leaf candidate / implements fix-its below key off the
+        // first leaf FQN; the composite-aware payload arrives later.
+        $boundLeaves = BoundExprView::leafFqns($typeParams[$index]->bound);
+        $primaryLeaf = $boundLeaves[0] ?? '';
         $concrete = ltrim((string) $args[$index]->name, '\\');
         $concreteIsScalar = (bool) ($args[$index]->isScalar ?? false);
 
@@ -420,7 +426,7 @@ final readonly class WorkspaceAnalyzer
             if ($candidateFqn === $concrete) {
                 continue;
             }
-            if ($hierarchy->isSubtype($candidateFqn, $bound) === true) {
+            if (BoundExprView::isSatisfiedBy($candidateFqn, $typeParams[$index]->bound, $isSubtype)) {
                 $short = strrpos($candidateFqn, '\\') !== false
                     ? substr($candidateFqn, strrpos($candidateFqn, '\\') + 1)
                     : $candidateFqn;
@@ -434,14 +440,14 @@ final readonly class WorkspaceAnalyzer
         return [
             'kind' => 'bound',
             'param' => $typeParams[$index]->name,
-            'bound' => $bound,
+            'bound' => $primaryLeaf,
             'concrete' => $concrete,
             'concreteIsScalar' => $concreteIsScalar,
             'typeArgRange' => self::typeArgRange($source, $node->getEndFilePos() + 1, $index, $positionMap),
             'candidates' => $candidateNames,
             'implementsInsert' => $concreteIsScalar
                 ? null
-                : self::implementsInsert($openClasses[$concrete] ?? null, $bound),
+                : self::implementsInsert($openClasses[$concrete] ?? null, $primaryLeaf),
         ];
     }
 
