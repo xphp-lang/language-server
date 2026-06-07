@@ -451,6 +451,35 @@ final class AstVisitorTest extends TestCase
         self::assertEmpty($typeParamSpecs);
     }
 
+    public function testBarewordComparisonBeforeClassNameIsNotMistakenForGenericDeclaration(): void
+    {
+        // `Foo::CONST < Bar` and `MY_CONST < Other` end in a bareword (T_STRING)
+        // before `<`, but the name is not a class/interface/trait/function
+        // declaration name -- so no clause opens and the compared constant is
+        // not painted as a type parameter.
+        foreach (["<?php\n\$a = Foo::CONST < Bar;", "<?php\n\$b = MY_CONST < Other;"] as $source) {
+            $specs = $this->collect($source);
+            $typeParamSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'typeParameter');
+            self::assertEmpty($typeParamSpecs, $source);
+        }
+    }
+
+    public function testNamedGenericDeclarationsOpenClauseAfterTheirKeyword(): void
+    {
+        // The declaration-clause opener fires for a name preceded by an
+        // interface / trait / function keyword (the class case is covered
+        // elsewhere) -- each `T` is a typeParameter.
+        $sources = [
+            "<?php\ninterface Container<T> {}",
+            "<?php\ntrait HasItem<T> {}",
+            "<?php\nfunction identity<T>(\$x) { return \$x; }",
+        ];
+        foreach ($sources as $source) {
+            $specs = $this->collect($source);
+            $this->assertTokenSubstring($specs, $source, 'T', 'typeParameter');
+        }
+    }
+
     public function testReifiedNewTPaintsAsTypeParameter(): void
     {
         // Form 10: `new T(...)` inside a class body whose template has T.
