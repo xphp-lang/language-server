@@ -111,7 +111,7 @@ final class XphpCallHierarchyHandler implements Handler, CanRegisterCapabilities
         if ($result->ast === null || $result->ast === []) {
             return new Success([]);
         }
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         $offset = $positionMap->positionToOffset(
             $params->position->line,
             $params->position->character,
@@ -194,7 +194,7 @@ final class XphpCallHierarchyHandler implements Handler, CanRegisterCapabilities
         if ($body === null || $body === []) {
             return new Success([]);
         }
-        $positionMap = new PositionMap($document->text);
+        $positionMap = $this->cache->positionMap($uri, $document->version, $document->text);
         $calls = self::collectOutgoingFromBody($body, $uri, $positionMap);
         return new Success($calls);
     }
@@ -253,7 +253,7 @@ final class XphpCallHierarchyHandler implements Handler, CanRegisterCapabilities
             if ($result->ast === null || $result->ast === []) {
                 continue;
             }
-            $positionMap = new PositionMap($document->text);
+            $positionMap = $this->cache->positionMap($uriStr, $document->version, $document->text);
             $localHits = self::collectCallSitesInAst($result->ast, $targetName, $uriStr, $positionMap);
             foreach ($localHits as $hit) {
                 $hits[] = $hit;

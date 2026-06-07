@@ -20,7 +20,6 @@ use Phpactor\LanguageServerProtocol\MarkupContent;
 use Phpactor\LanguageServerProtocol\MarkupKind;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
-use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Resolver\BoundExprView;
 use XPHP\Lsp\Resolver\PhpHoverResolver;
 use XPHP\Transpiler\Monomorphize\Registry;
@@ -110,7 +109,7 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
             return new Success(null);
         }
 
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($params->textDocument->uri, $item->version, $item->text);
         $offset = $positionMap->positionToOffset(
             $params->position->line,
             $params->position->character,

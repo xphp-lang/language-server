@@ -87,7 +87,7 @@ final class XphpDocumentSymbolHandler implements Handler, CanRegisterCapabilitie
             return new Success(null);
         }
 
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         $byteOffsetMap = $result->byteOffsetMap;
         $symbols = [];
         foreach ($result->ast as $stmt) {

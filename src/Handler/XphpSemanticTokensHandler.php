@@ -17,7 +17,6 @@ use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Handler\SemanticTokens\AstVisitor;
 use XPHP\Lsp\Handler\SemanticTokens\Encoder;
 use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
-use XPHP\Lsp\PositionMap;
 
 /**
  * `textDocument/semanticTokens/full` handler.
@@ -120,7 +119,7 @@ final class XphpSemanticTokensHandler implements Handler, CanRegisterCapabilitie
         }
 
         $visitor = new AstVisitor(
-            new PositionMap($item->text),
+            $this->cache->positionMap($uri, $item->version, $item->text),
             $result->byteOffsetMap,
             $item->text,
         );

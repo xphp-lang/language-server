@@ -119,7 +119,7 @@ final class XphpCodeLensHandler implements Handler, CanRegisterCapabilities
         if ($result->ast === null || $result->ast === []) {
             return new Success([]);
         }
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         return new Success(self::buildLenses($uri, $result->ast, $positionMap));
     }
 
@@ -148,7 +148,7 @@ final class XphpCodeLensHandler implements Handler, CanRegisterCapabilities
             return new Success($lens);
         }
         $item = $this->workspace->get($uri);
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         $byteOffset = $positionMap->positionToOffset($line, $character);
         $locations = $this->finder->findReferences($uri, $byteOffset, false);
         $count = count($locations);

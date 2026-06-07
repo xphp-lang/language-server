@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace XPHP\Lsp\Analyzer;
 
+use XPHP\Lsp\PositionMap;
+
 /**
  * Version-keyed AST cache. The handlers (hover, definition, completion,
  * diagnostics) used to call `Analyzer::analyzeFile($item->text)` directly on
@@ -22,7 +24,7 @@ namespace XPHP\Lsp\Analyzer;
  */
 final class ParsedDocumentCache
 {
-    /** @var array<string, array{version: int, result: ParseResult}> */
+    /** @var array<string, array{version: int, result: ParseResult, positionMap?: PositionMap}> */
     private array $entries = [];
 
     public function __construct(private readonly Analyzer $analyzer)
@@ -38,6 +40,32 @@ final class ParsedDocumentCache
         $result = $this->analyzer->analyzeFile($source);
         $this->entries[$uri] = ['version' => $version, 'result' => $result];
         return $result;
+    }
+
+    /**
+     * Memoized {@see PositionMap} for an open document, keyed by the same
+     * `(uri, version)` contract as {@see getOrParse}. Building a PositionMap
+     * scans the whole source to index line offsets; the hot handlers (semantic
+     * tokens, hover, definition, ...) rebuilt one on every request even when
+     * the text was unchanged. Caching it next to the parse result removes that
+     * redundant scan with no behaviour change -- a version bump invalidates it
+     * exactly like the AST.
+     */
+    public function positionMap(string $uri, int $version, string $source): PositionMap
+    {
+        $cached = $this->entries[$uri] ?? null;
+        if ($cached !== null && $cached['version'] === $version && isset($cached['positionMap'])) {
+            return $cached['positionMap'];
+        }
+        // Keep the entry coherent at this version: reuse the parse if it is
+        // already current, otherwise this refreshes result + version (and drops
+        // any stale positionMap by replacing the entry).
+        if ($cached === null || $cached['version'] !== $version) {
+            $this->getOrParse($uri, $version, $source);
+        }
+        $map = new PositionMap($source);
+        $this->entries[$uri]['positionMap'] = $map;
+        return $map;
     }
 
     public function forget(string $uri): void

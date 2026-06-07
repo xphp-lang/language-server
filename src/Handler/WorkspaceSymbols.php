@@ -15,7 +15,6 @@ use Phpactor\LanguageServerProtocol\Location;
 use Phpactor\LanguageServerProtocol\Position;
 use Phpactor\LanguageServerProtocol\Range;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
-use XPHP\Lsp\PositionMap;
 
 /**
  * Walks every open document and collects the FQNs of every ClassLike (class,
@@ -113,7 +112,7 @@ final readonly class WorkspaceSymbols
             if ($found === null) {
                 continue;
             }
-            $positionMap = new PositionMap($item->text);
+            $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
             [$startLine, $startChar] = $positionMap->offsetToPosition($found['startOffset']);
             [$endLine, $endChar] = $positionMap->offsetToPosition($found['endOffset']);
             $location = new Location(
