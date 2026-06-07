@@ -15,7 +15,6 @@ use Phpactor\LanguageServerProtocol\DocumentHighlightKind;
 use Phpactor\LanguageServerProtocol\DocumentHighlightParams;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
-use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Resolver\DocumentHighlightKindResolver;
 use XPHP\Lsp\Resolver\ReferenceFinder;
 
@@ -70,7 +69,7 @@ final class XphpDocumentHighlightHandler implements Handler, CanRegisterCapabili
             return new Success([]);
         }
         $item = $this->workspace->get($uri);
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         $offset = $positionMap->positionToOffset(
             $params->position->line,
             $params->position->character,

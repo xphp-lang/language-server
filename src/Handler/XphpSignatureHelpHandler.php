@@ -30,7 +30,6 @@ use Phpactor\WorseReflection\Core\Exception\NotFound;
 use Phpactor\WorseReflection\Reflector;
 use Throwable;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
-use XPHP\Lsp\PositionMap;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 /**
@@ -97,7 +96,7 @@ final class XphpSignatureHelpHandler implements Handler, CanRegisterCapabilities
             return new Success(null);
         }
 
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         $offset = $positionMap->positionToOffset(
             $params->position->line,
             $params->position->character,

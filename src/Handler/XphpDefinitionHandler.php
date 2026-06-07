@@ -19,7 +19,6 @@ use Phpactor\LanguageServerProtocol\Position;
 use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
-use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Reflection\FqnIndex;
 use XPHP\Lsp\Resolver\GenericResolver;
 use XPHP\Lsp\Resolver\PhpDefinitionResolver;
@@ -95,7 +94,7 @@ final class XphpDefinitionHandler implements Handler, CanRegisterCapabilities
             return new Success(null);
         }
 
-        $offset = (new PositionMap($currentItem->text))->positionToOffset(
+        $offset = $this->cache->positionMap($params->textDocument->uri, $currentItem->version, $currentItem->text)->positionToOffset(
             $params->position->line,
             $params->position->character,
         );

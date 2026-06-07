@@ -102,7 +102,7 @@ final class XphpTypeHierarchyHandler implements Handler, CanRegisterCapabilities
         if ($result->ast === null || $result->ast === []) {
             return new Success([]);
         }
-        $positionMap = new PositionMap($item->text);
+        $positionMap = $this->cache->positionMap($uri, $item->version, $item->text);
         $offset = $positionMap->positionToOffset(
             $params->position->line,
             $params->position->character,

@@ -93,7 +93,7 @@ final class XphpInlayHintHandler implements Handler, CanRegisterCapabilities
         if ($result->ast === null) {
             return new Success([]);
         }
-        $map = new PositionMap($item->text);
+        $map = $this->cache->positionMap($uri, $item->version, $item->text);
 
         $assigns = self::collectAssigns($result->ast);
         $hints = [];
