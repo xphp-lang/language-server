@@ -317,30 +317,10 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
      */
     public static function findAngleRange(string $source, int $nameEnd): ?array
     {
-        $n = strlen($source);
-        $i = $nameEnd + 1;
-        while ($i < $n && ctype_space($source[$i])) {
-            $i++;
-        }
-        if ($i >= $n || $source[$i] !== '<') {
-            return null;
-        }
-        $openPos = $i;
-        $depth = 1;
-        $j = $i + 1;
-        while ($j < $n && $depth > 0) {
-            $c = $source[$j];
-            if ($c === '<') {
-                $depth++;
-            } elseif ($c === '>') {
-                $depth--;
-            }
-            $j++;
-        }
-        if ($depth !== 0) {
-            return null;
-        }
-        return ['openPos' => $openPos, 'closePos' => $j - 1];
+        // Call-site generic args use the turbofish `Name::<…>`; the shared
+        // scanner requires the `::` opener so a bare `Name<…>` (or `$a < $b`)
+        // never registers as a clause.
+        return TurbofishScanner::clauseAfter($source, $nameEnd);
     }
 
     /**

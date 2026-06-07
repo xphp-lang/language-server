@@ -240,19 +240,50 @@ final class AstVisitorTest extends TestCase
 
     public function testTypeArgClausePaintsInsideBoxOfPlastic(): void
     {
-        // Form 6: new Box<Plastic>() -- `Plastic` inside <...> is typeParameter.
-        $source = "<?php\n\$b = new Box<Plastic>();";
+        // Form 6: new Box::<Plastic>() -- `Plastic` inside the turbofish is
+        // typeParameter. The clause opens on `<` preceded by `::`.
+        $source = "<?php\n\$b = new Box::<Plastic>();";
         $specs = $this->collect($source);
         $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
     }
 
     public function testNestedTypeArgClause(): void
     {
-        // Nested: Box<Lst<T>> -- both `Lst` and `T` are typeParameter.
-        $source = "<?php\n\$b = new Box<Lst<T>>();";
+        // Nested: Box::<Lst<T>> -- the outer clause is a turbofish; the inner
+        // `Lst<T>` is a bare nested type-arg. Both `Lst` and `T` are
+        // typeParameter.
+        $source = "<?php\n\$b = new Box::<Lst<T>>();";
         $specs = $this->collect($source);
         $this->assertTokenSubstring($specs, $source, 'Lst', 'typeParameter');
         $this->assertTokenSubstring($specs, $source, 'T', 'typeParameter');
+    }
+
+    public function testStaticCallTurbofishPaintsTypeArg(): void
+    {
+        // Util::identity::<int>(42) -- the call-site turbofish opens on the
+        // `<` after `::`; `int` inside is typeParameter.
+        $source = "<?php\nUtil::identity::<Plastic>(\$x);";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+    }
+
+    public function testStaticReceiverTurbofishPaintsTypeArg(): void
+    {
+        // static::<T>() -- the receiver before `::` is the T_STATIC keyword;
+        // the clause still opens on the `<` after `::`.
+        $source = "<?php\nstatic::<Plastic>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+    }
+
+    public function testBareDoubleColonWithoutAngleOpensNothing(): void
+    {
+        // `Foo::BAR` is a constant access -- no `<` follows the `::`, so no
+        // type-arg clause opens.
+        $source = "<?php\n\$x = Foo::BAR;";
+        $specs = $this->collect($source);
+        $typeParamSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'typeParameter');
+        self::assertEmpty($typeParamSpecs);
     }
 
     public function testMultipleTypeArgsSeparatedByComma(): void
