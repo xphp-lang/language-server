@@ -44,8 +44,8 @@ For LSP-client developers wiring this server into a non-bundled editor:
 - `codeActionProvider` with `resolveProvider: true`
 - `codeLensProvider` with `resolveProvider: true`
 - `callHierarchyProvider`, `typeHierarchyProvider`
-- `executeCommandProvider` for `xphp.showReferences` (no-op server-
-  side; both clients dispatch `editor.action.showReferences` directly)
+- `executeCommandProvider` advertising `editor.action.showReferences`
+  (no-op server-side; both clients dispatch it directly)
 - `semanticTokensProvider` (full file; standard LSP-spec token
   legend including `typeParameter`)
 - Pull-mode `diagnosticProvider`

@@ -239,8 +239,10 @@ as type parameters.
 ## Validate
 
 Diagnostics surface in both push (`textDocument/publishDiagnostics`)
-and pull (`textDocument/diagnostic`, LSP 3.17) modes. Five
-diagnostic codes are emitted today:
+and pull (`textDocument/diagnostic`, LSP 3.17) modes. Six diagnostic
+codes are emitted today: `xphp.parse`, `xphp.bound`, `xphp.definition`
+(duplicate template), `xphp.undefined-name`, `xphp.ctor-arg-mismatch`,
+and `xphp.arg-mismatch`.
 
 ### Parse errors
 
@@ -259,15 +261,19 @@ open buffers), so `new Box::<Tag>(...)` resolves correctly even when
 reference the source-level instantiation (e.g. `Box<int>`) rather
 than the hashed specialization name.
 
-### Default type arguments
+### Default type arguments (no false missing-arg)
 
-A generic with trailing defaults (`class Box<T = \stdClass>`,
-`class Pair<A, B = A>`) may be instantiated with the defaulted args
-omitted (`new Box::<>()`, `new Pair::<Dog>(...)`). The argument-type
-checker resolves the effective type for each omitted slot left-to-right
-(so `B = A` picks up the supplied `A`) and never reports a false
-"missing type argument", while still substituting the effective type
-into method parameter checks.
+Not a diagnostic code of its own -- this is how the bound and
+argument-type checks treat omitted defaults. A generic with trailing
+defaults (`class Box<T = \stdClass>`, `class Pair<A, B = A>`) may be
+instantiated with the defaulted args omitted (`new Box::<>()`,
+`new Pair::<Dog>(...)`). The argument-type checker resolves the
+effective type for each omitted slot left-to-right (so `B = A` picks up
+the supplied `A`) and never reports a false "missing type argument",
+while still substituting the effective type into method parameter
+checks. (An empty turbofish on a template with a non-defaulted
+parameter is still reported -- as `xphp.bound` -- since the
+instantiation is genuinely incomplete.)
 
 ### Duplicate template declarations
 
@@ -292,10 +298,19 @@ declared type -- a runtime `TypeError` waiting to happen, surfaced
 at compile time. Inference is intentionally narrow (literals,
 `new ClassName(...)`, `true` / `false` / `null` const fetches) to
 avoid false positives on arguments whose type would require flow
-analysis to know. The argument check also applies the type argument
-of an instance-method turbofish (`$obj->m::<T>(...)`); a variable
-turbofish (`$f::<T>(...)`) over an unknown callee is conservatively
-skipped to avoid false positives.
+analysis to know.
+
+### Argument-type mismatch (`xphp.arg-mismatch`)
+
+The same narrow-inference check, extended beyond constructors to
+method calls (`$obj->m(...)`), static calls (`Cls::m(...)`), and free
+functions (`freeFn(...)`). Type-argument turbofish is honoured: an
+instance-method turbofish (`$obj->m::<T>(...)`) binds its type
+argument for the check. Cases that would require flow analysis are
+conservatively skipped rather than guessed -- a variable turbofish
+(`$f::<T>(...)`) over an unknown callee, and an over-supplied
+type-argument list (more args than the template declares), produce no
+mismatch.
 
 ---
 
@@ -404,7 +419,7 @@ navigation lands on the production declaration by default.
 CI-friendly entry point that doesn't require an LSP client:
 
 ```bash
-tools/lsp/bin/xphp-lsp --lint path/to/file.xphp [more.xphp ...]
+bin/xphp-lsp --lint path/to/file.xphp [more.xphp ...]
 ```
 
 Output format is `<file>:<line>:<col>: <severity>: [<code>] <message>`

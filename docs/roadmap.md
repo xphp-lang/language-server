@@ -136,7 +136,7 @@ settling those is a prerequisite to any implementation work.
 
 ### Lowering preview -- "show me the generated PHP"
 
-**What it'd do.** A code lens or peek-window above any `new Foo<X>(...)` site
+**What it'd do.** A code lens or peek-window above any `new Foo::<X>(...)` site
 that opens the generated PHP for that specialization, side-by-side with the
 source. Same affordance for generic method calls.
 
@@ -186,7 +186,7 @@ unifying.
 ### Instantiation inlay hints -- show the specialized FQN inline
 
 **What it'd do.** Render `// → Box_T_d59a1...` (or a shortened
-hash) as an inlay hint at every `new Box<X>(...)` site so the
+hash) as an inlay hint at every `new Box::<X>(...)` site so the
 specialization a given call resolves to is visible without leaving
 the editor.
 

@@ -41,7 +41,7 @@ make build/phar # → var/xphp-lsp.phar
 
 The PHAR is the distribution format for editor integrations bundle --
 zero-config install for editors that can't reasonably depend on a
-Composer-managed working tree. 
+Composer-managed working tree.
 
 ---
 
@@ -98,5 +98,5 @@ mindmap
 
 ## See also
 
-- [detailed list of features](docs/features/index.md) 
+- [detailed list of features](docs/features/index.md)
 - [roadmap](./docs/roadmap.md)
