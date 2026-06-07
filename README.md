@@ -16,6 +16,10 @@ The server reuses the parent `xphp` package's AST, generic-instantiation
 `Registry`, and `TypeHierarchy` directly -- no second parser, no duplicated
 language semantics.
 
+Targets **xphp 0.2.x**, including the turbofish call-site syntax
+(`new Box::<T>()`, `Foo::method::<T>(...)`), variance markers, default type
+arguments, and composite (intersection / union) bounds.
+
 For the public-facing feature inventory plus what's planned next, see
 [roadmap](docs/roadmap.md).
 
