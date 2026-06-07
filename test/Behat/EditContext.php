@@ -217,6 +217,18 @@ final class EditContext implements Context
     }
 
     /**
+     * @Then no code action titled :title is offered
+     */
+    public function noCodeActionTitledIsOffered(string $title): void
+    {
+        foreach ((array) $this->world->last() as $action) {
+            if ($action instanceof CodeAction && $action->title === $title) {
+                $this->world->fail(sprintf('expected no code action titled "%s", but it was offered', $title));
+            }
+        }
+    }
+
+    /**
      * @Then no code actions are offered
      */
     public function noCodeActionsAreOffered(): void

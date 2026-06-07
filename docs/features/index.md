@@ -151,6 +151,12 @@ round-trip so cursor movement stays responsive. Currently offered:
 - **"Did you mean `null` / `true` / `false`?"** typo fixes attached
   to `UndefinedName` diagnostics, using Levenshtein distance against
   the small set of constants frequently misspelled as a bareword.
+- **Bound-violation fixes** -- on a `Generic bound violated`
+  diagnostic: "Change type argument to `<Candidate>`" (one per
+  workspace type that satisfies the whole bound) and, for an
+  intersection or single-leaf bound, "Add implements `\Leaf` to
+  `<Concrete>`" once per leaf the concrete class is missing. Union
+  bounds offer only the swap (implementing any one leaf is ambiguous).
 
 ### Code Lens
 

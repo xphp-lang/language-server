@@ -46,6 +46,73 @@ final class WorkspaceAnalyzerTest extends TestCase
         self::assertGreaterThan(0, $d->startCharacter, 'must not start at column 0 (whole-line) anymore');
     }
 
+    public function testCompositeBoundViolationEmitsLeafListInFixData(): void
+    {
+        $files = $this->parseFiles([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            interface Animal {}
+            interface Comparable {}
+            class Box<T : Animal & Comparable> {}
+            PHP,
+            '/None.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class None {}
+            PHP,
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $x = new Box::<None>();
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        self::assertCount(1, $diagnostics['/Use.xphp']);
+        $data = $diagnostics['/Use.xphp'][0]->data;
+        self::assertIsArray($data);
+        // Human title carries the full composite bound...
+        self::assertSame('\\App\\Animal & \\App\\Comparable', $data['bound']);
+        // ...and the flat leaf list drives the per-leaf implement fix-its.
+        self::assertSame(['App\\Animal', 'App\\Comparable'], $data['boundLeaves']);
+        // `None` implements neither leaf -> one implement insert per leaf.
+        self::assertIsArray($data['implementsInserts']);
+        self::assertCount(2, $data['implementsInserts']);
+    }
+
+    public function testUnionBoundViolationEmitsNoImplementInserts(): void
+    {
+        $files = $this->parseFiles([
+            '/Box.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            interface Cat {}
+            interface Dog {}
+            class Box<T : Cat | Dog> {}
+            PHP,
+            '/None.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            class None {}
+            PHP,
+            '/Use.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            $x = new Box::<None>();
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        $data = $diagnostics['/Use.xphp'][0]->data;
+        self::assertIsArray($data);
+        self::assertSame('\\App\\Cat | \\App\\Dog', $data['bound']);
+        // Union bound: implement fix-its are suppressed (ambiguous).
+        self::assertSame([], $data['implementsInserts']);
+    }
+
     public function testBoundViolationOnUnknownClassReportsDistinctMessage(): void
     {
         $files = $this->parseFiles([

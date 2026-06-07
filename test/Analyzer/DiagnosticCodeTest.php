@@ -45,6 +45,24 @@ final class DiagnosticCodeTest extends TestCase
         );
     }
 
+    public function testCompositeBoundViolationMessageMapsToBoundViolationCode(): void
+    {
+        // Composite bounds share the same leading line but use "does not
+        // satisfy" in the detail (vs "does not extend/implement" for a single
+        // leaf) -- the triage keys off the prefix, so both route the same way.
+        $e = new RuntimeException(
+            "Generic bound violated while instantiating App\\Pair<int>.\n"
+            . "  type parameter T is bounded by App\\Animal & App\\Comparable\n"
+            . "  but the supplied concrete type is int\n\n"
+            . '  "int" does not satisfy "App\\Animal & App\\Comparable".'
+        );
+
+        self::assertSame(
+            DiagnosticCode::BoundViolation,
+            DiagnosticCode::fromRegistryRecordInstantiationException($e),
+        );
+    }
+
     public function testUnknownPrefixFallsBackToBoundViolation(): void
     {
         // Conservative default: an unfamiliar message phrasing is more likely
