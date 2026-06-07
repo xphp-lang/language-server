@@ -18,7 +18,7 @@
         "phpactor/language-server": "^6.0",
         "phpactor/language-server-protocol": "^3.5",
         "phpactor/worse-reflection": "^0.6.0",
-        "xphp-lang/xphp": "^0.1.0"
+        "xphp-lang/xphp": "0.2.x-dev"
     },
     "require-dev": {
         "phpunit/phpunit": "^13.0"
