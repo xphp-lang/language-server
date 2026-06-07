@@ -172,6 +172,13 @@ final class AstVisitor
                     // Declaration clause: `class Box<T>`, `function f<T>` --
                     // the bare `<` follows the declared name (T_STRING).
                     $genericDepth = 1;
+                } elseif (($lastSignificantTokenId === T_FN || $lastSignificantTokenId === T_FUNCTION)
+                    && self::peekIsUppercaseIdent($tokens, $i + 1)
+                ) {
+                    // Anonymous generic closure / arrow declaration clause:
+                    // `fn<T>(…)`, `function<T>(…)` -- the `<` follows the
+                    // `fn` / `function` keyword (no name between).
+                    $genericDepth = 1;
                 } elseif ($lastSignificantTokenId === T_DOUBLE_COLON
                     && self::peekIsUppercaseIdent($tokens, $i + 1)
                 ) {
@@ -377,6 +384,23 @@ final class AstVisitor
                     }
                     return null;
                 }
+                if ($node instanceof Node\Expr\Closure || $node instanceof Node\Expr\ArrowFunction) {
+                    // Generic closures / arrows (`fn<T>(…)`, `function<T>(…)`)
+                    // carry their type params under ATTR_METHOD_GENERIC_PARAMS
+                    // (no enclosing ClassLike). Push a frame so body-level `T`
+                    // references re-classify, popped symmetrically in leaveNode.
+                    $params = $node->getAttribute(\XPHP\Transpiler\Monomorphize\XphpSourceParser::ATTR_METHOD_GENERIC_PARAMS);
+                    $frame = [];
+                    if (is_array($params)) {
+                        foreach ($params as $param) {
+                            if ($param instanceof \XPHP\Transpiler\Monomorphize\TypeParam) {
+                                $frame[$param->name] = true;
+                            }
+                        }
+                    }
+                    $this->typeParamStack[] = $frame;
+                    return null;
+                }
                 if ($node instanceof ClassMethod) {
                     $this->emitter->emitAstIdentifier($this->out, $node->name, 'method');
                     return null;
@@ -440,7 +464,10 @@ final class AstVisitor
 
             public function leaveNode(Node $node)
             {
-                if ($node instanceof ClassLike && $this->typeParamStack !== []) {
+                $pushesFrame = $node instanceof ClassLike
+                    || $node instanceof Node\Expr\Closure
+                    || $node instanceof Node\Expr\ArrowFunction;
+                if ($pushesFrame && $this->typeParamStack !== []) {
                     array_pop($this->typeParamStack);
                 }
                 return null;

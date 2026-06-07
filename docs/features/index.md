@@ -229,7 +229,10 @@ LSP method: `textDocument/semanticTokens/full`.
 AST-driven syntax highlighting using the standard LSP token-type
 legend. Type-parameter `T` references render with the
 `typeParameter` color in generic-syntax positions, distinguishing
-them visually from regular class references.
+them visually from regular class references. This extends to generic
+closures and arrows (`fn<T>(…)`, `function<T>(…)`): the declaration
+clause and body-level `T` references inside the closure are coloured
+as type parameters.
 
 ---
 

@@ -1260,6 +1260,13 @@
         // beyond the LogicalOr block above.
         "LogicalOrAllSubExprNegation": {
             "ignore": [
+                // AstVisitor::collectFromTokens generic-closure opener
+                // `($last === T_FN || $last === T_FUNCTION)` -- negating both
+                // sub-exprs yields an always-true guard (a token can't equal
+                // both), so the clause merely over-opens; the token corpus
+                // doesn't produce a distinguishing misclassification, and the
+                // fn<T> / function<T> decl-clause T is asserted directly.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::collectFromTokens",
                 // Turbofish/bound view equivalent mutants: defensive
                 // bounds guards (offset/index range checks where >/>=
                 // converge because the surrounding byte re-check rejects

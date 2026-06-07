@@ -74,7 +74,9 @@ test suite; full descriptions to fold into [`README.md`](../README.md#features))
   checks. Variance markers (`+T` covariant, `-T` contravariant) are shown in
   hover. Instance-method turbofish (`$obj->m::<T>(...)`) binds its type
   argument for argument checking; variable turbofish over an unknown callee is
-  conservatively skipped.
+  conservatively skipped. Generic closures and arrows (`fn<T>(…)`,
+  `function<T>(…)`) highlight their declaration clause and body-level `T`
+  references as type parameters.
 - **Argument-type checker V2** -- a new `xphp.arg-mismatch` diagnostic extends
   the constructor check to `$obj->m(...)`, `Cls::m(...)`, and `freeFn(...)`, with
   conservative "simple-locals" inference for `$var` arguments assigned from a

@@ -16,6 +16,17 @@ Feature: Semantic tokens
     Then the semantic tokens are non-empty
     And a "typeParameter" token covers "T" in "/box.xphp"
 
+  Scenario: Highlight the type parameter of a generic closure
+    Given the file at "/closure.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $make = function<T>() { return new T(); };
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/semanticTokens/full" for "/closure.xphp"
+    Then a "typeParameter" token covers "T" in "/closure.xphp"
+
   Scenario: Highlight an interpolated variable inside a double-quoted string
     Given the file at "/Str.xphp" contains the following lines:
       """
