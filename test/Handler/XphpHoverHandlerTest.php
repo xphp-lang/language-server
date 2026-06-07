@@ -78,6 +78,63 @@ final class XphpHoverHandlerTest extends TestCase
         self::assertStringContainsString('\\App\\Animal & \\App\\Comparable', $text);
     }
 
+    public function testHoverShowsCovariantMarker(): void
+    {
+        // Covariant `+T` is only allowed in output (return) positions.
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Producer<+T>
+        {
+            public function get(): T { }
+        }
+        XPHP);
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, '): T {', offsetInSearch: strlen('): '));
+
+        self::assertInstanceOf(Hover::class, $hover);
+        $text = $hover->contents->value;
+        self::assertStringContainsString('`+T`', $text);
+        self::assertStringContainsString('covariant', $text);
+    }
+
+    public function testHoverShowsContravariantMarker(): void
+    {
+        // Contravariant `-T` is only allowed in input (parameter) positions.
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Consumer<-T>
+        {
+            public function put(T $item): void { }
+        }
+        XPHP);
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'put(T $item', offsetInSearch: strlen('put('));
+
+        self::assertInstanceOf(Hover::class, $hover);
+        $text = $hover->contents->value;
+        self::assertStringContainsString('`-T`', $text);
+        self::assertStringContainsString('contravariant', $text);
+    }
+
+    public function testHoverInvariantHasNoVarianceNote(): void
+    {
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Inv<T>
+        {
+            public T $item;
+        }
+        XPHP);
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'public T $item', offsetInSearch: strlen('public '));
+
+        self::assertInstanceOf(Hover::class, $hover);
+        $text = $hover->contents->value;
+        self::assertStringContainsString('`T`', $text);
+        self::assertStringNotContainsString('covariant', $text);
+        self::assertStringNotContainsString('contravariant', $text);
+    }
+
     public function testHoverOverTypeParamShowsFBoundedBound(): void
     {
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'

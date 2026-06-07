@@ -45,3 +45,18 @@ Feature: Hover
     When I request "textDocument/hover" on "T" at line 4 of "/pair.xphp"
     Then the hover contents contain "bounded by"
     And the hover contents contain "\App\Animal & \App\Comparable"
+
+  Scenario: Hover over a covariant type parameter shows its variance
+    Given the file at "/producer.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Producer<+T>
+      {
+          public function get(): T {}
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "T" at line 4 of "/producer.xphp"
+    Then the hover contents contain "`+T`"
+    And the hover contents contain "covariant"

@@ -26,6 +26,7 @@ use XPHP\Lsp\Resolver\PhpHoverResolver;
 use XPHP\Transpiler\Monomorphize\Registry;
 use XPHP\Transpiler\Monomorphize\TypeParam;
 use XPHP\Transpiler\Monomorphize\TypeRef;
+use XPHP\Transpiler\Monomorphize\Variance;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 /**
@@ -209,16 +210,34 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
                 $boundLine = $boundDisplay !== null
                     ? sprintf("\n\nbounded by `%s`", $boundDisplay)
                     : '';
+                [$displayName, $varianceNote] = self::varianceLabel($param);
                 return sprintf(
-                    "**Type parameter `%s`** of `%s`%s",
-                    $param->name,
+                    "**Type parameter `%s`** of `%s`%s%s",
+                    $displayName,
                     is_string($owner) ? $owner : (string) $classLike->name,
+                    $varianceNote,
                     $boundLine,
                 );
             }
         }
 
         return null;
+    }
+
+    /**
+     * Render a type parameter's display name and a human variance note from its
+     * `Variance`: covariant `+T` / contravariant `-T` get the marker prefix and
+     * a parenthetical; invariant stays the bare name with no note.
+     *
+     * @return array{0: string, 1: string} [displayName, varianceNote]
+     */
+    private static function varianceLabel(TypeParam $param): array
+    {
+        return match ($param->variance) {
+            Variance::Covariant => ['+' . $param->name, ' (covariant)'],
+            Variance::Contravariant => ['-' . $param->name, ' (contravariant)'],
+            Variance::Invariant => [$param->name, ''],
+        };
     }
 
     /**
