@@ -55,6 +55,27 @@ final class BoundErrorCodeActionProviderTest extends TestCase
         $edit = $swap->edit->documentChanges[0]->edits[0];
         self::assertSame('Stringy', $edit->newText);
         self::assertSame(2, $edit->range->start->line, 'the `int` is on line 2 of Use.xphp');
+        // Pin the exact span of the `int` arg inside `new Box::<int>` so the
+        // turbofish clause-locating + segment-trim arithmetic can't drift.
+        self::assertSame(strlen('$x = new Box::<'), $edit->range->start->character);
+        self::assertSame(strlen('$x = new Box::<int'), $edit->range->end->character);
+    }
+
+    public function testSwapRangeTrimsWhitespacePaddingInsideClause(): void
+    {
+        // Whitespace padding around the offending arg must be trimmed so the
+        // swap edit covers exactly `int`, not the surrounding spaces. Locks the
+        // leading/trailing trim loops in the clause range finder.
+        $actions = $this->actionsForUse([
+            '/Stringy.xphp' => self::STRINGY,
+            '/Box.xphp' => self::BOX,
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box::<  int  >();\n",
+        ]);
+
+        $swap = self::actionTitled($actions, 'Change type argument to Stringy');
+        $range = $swap->edit->documentChanges[0]->edits[0]->range;
+        self::assertSame(strlen('$x = new Box::<  '), $range->start->character);
+        self::assertSame(3, $range->end->character - $range->start->character);
     }
 
     public function testWorkspaceClassConcreteOffersBothFixes(): void
@@ -91,6 +112,11 @@ final class BoundErrorCodeActionProviderTest extends TestCase
         $covered = $swap->edit->documentChanges[0]->edits[0]->range;
         // `int` is the second arg; assert the edit lands on it (not on Stringy).
         self::assertSame(2, $covered->start->line);
+        // Pin the exact column so the clause segment-split + whitespace-trim
+        // arithmetic in typeArgRange can't drift. In `$x = new Pair::<Stringy, int>();`
+        // the `int` arg starts at column 25.
+        self::assertSame(strlen('$x = new Pair::<Stringy, '), $covered->start->character);
+        self::assertSame(2, $covered->end->line);
         // The replaced span should be 3 chars wide (`int`).
         self::assertSame(3, $covered->end->character - $covered->start->character);
     }

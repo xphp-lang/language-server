@@ -286,6 +286,31 @@ final class AstVisitorTest extends TestCase
         self::assertEmpty($typeParamSpecs);
     }
 
+    public function testTurbofishWithLowercaseFirstArgDoesNotOpenClause(): void
+    {
+        // `Foo::<count(...)` -- the peek after `::<` is lowercase, so the
+        // uppercase-ident guard rejects it and no clause opens. Locks the
+        // `peekIsUppercaseIdent` conjunction on the T_DOUBLE_COLON branch.
+        $source = "<?php\nFoo::<count;";
+        $specs = $this->collect($source);
+        $typeParamSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'typeParameter');
+        self::assertEmpty($typeParamSpecs);
+    }
+
+    public function testTurbofishClauseClosesSoTrailingNameIsNotTypeParam(): void
+    {
+        // After `Box::<Plastic>` closes, the trailing `Other` identifier must
+        // NOT be classified as a type parameter. Locks the `$genericDepth = 1`
+        // open and the `>` decrement that returns depth to 0.
+        $source = "<?php\nBox::<Plastic>; class Other {}";
+        $specs = $this->collect($source);
+        $otherSpecs = array_filter(
+            $specs,
+            fn (TokenSpec $s) => self::substring($source, $s) === 'Other' && $s->type === 'typeParameter',
+        );
+        self::assertEmpty($otherSpecs, 'identifier after a closed turbofish must not be a type parameter');
+    }
+
     public function testMultipleTypeArgsSeparatedByComma(): void
     {
         // Form 9: Pair<K, V> -- both K and V are typeParameter.

@@ -106,6 +106,70 @@ final class XphpSignatureHelpHandlerTest extends TestCase
         self::assertStringContainsString('$kind', $help->signatures[0]->label);
     }
 
+    public function testTurbofishConstructorShowsConstructorSignature(): void
+    {
+        // strip() blanks the whole `::<…>` clause to equal-length whitespace,
+        // so the cursor offset inside the arg list still maps 1:1 to the
+        // stripped source the AST is built on.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/Box.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App;\nclass Box<T> { public function __construct(public string \$label, public int \$size) {} }\n",
+        ));
+        $useSource = "<?php\nuse App\\Box;\nnew Box::<Plastic>();\n";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        $byte = strpos($useSource, 'Plastic>(') + strlen('Plastic>(');
+        $help = $this->signatureAt($workspace, '/Use.xphp', $useSource, $byte);
+
+        self::assertInstanceOf(SignatureHelp::class, $help);
+        self::assertStringContainsString('$label', $help->signatures[0]->label);
+        self::assertStringContainsString('$size', $help->signatures[0]->label);
+        self::assertSame(0, $help->activeParameter);
+    }
+
+    public function testTurbofishStaticCallShowsMethodSignature(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/Util.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App;\nclass Util { public static function identity<T>(string \$kind, int \$qty): void {} }\n",
+        ));
+        $useSource = "<?php\nuse App\\Util;\nUtil::identity::<int>();\n";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        $byte = strpos($useSource, 'int>(') + strlen('int>(');
+        $help = $this->signatureAt($workspace, '/Use.xphp', $useSource, $byte);
+
+        self::assertInstanceOf(SignatureHelp::class, $help);
+        self::assertStringContainsString('$kind', $help->signatures[0]->label);
+        self::assertStringContainsString('$qty', $help->signatures[0]->label);
+    }
+
+    public function testTurbofishCallAdvancesActiveParameterPastComma(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/Util.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App;\nclass Util { public static function pair<T>(string \$kind, int \$qty): void {} }\n",
+        ));
+        $useSource = "<?php\nuse App\\Util;\nUtil::pair::<int>('a', );\n";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        // Cursor after the comma -- second argument is active.
+        $byte = strpos($useSource, "'a', ") + strlen("'a', ");
+        $help = $this->signatureAt($workspace, '/Use.xphp', $useSource, $byte);
+
+        self::assertInstanceOf(SignatureHelp::class, $help);
+        self::assertSame(1, $help->activeParameter);
+    }
+
     public function testReturnsNullWhenCursorNotInsideCall(): void
     {
         $workspace = new PhpactorWorkspace();
