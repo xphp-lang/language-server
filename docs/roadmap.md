@@ -72,7 +72,9 @@ test suite; full descriptions to fold into [`README.md`](../README.md#features))
   `class Pair<A, B = A>`) may be omitted at a call site without a false
   "missing type argument", with the effective type substituted into parameter
   checks. Variance markers (`+T` covariant, `-T` contravariant) are shown in
-  hover.
+  hover. Instance-method turbofish (`$obj->m::<T>(...)`) binds its type
+  argument for argument checking; variable turbofish over an unknown callee is
+  conservatively skipped.
 - **Argument-type checker V2** -- a new `xphp.arg-mismatch` diagnostic extends
   the constructor check to `$obj->m(...)`, `Cls::m(...)`, and `freeFn(...)`, with
   conservative "simple-locals" inference for `$var` arguments assigned from a

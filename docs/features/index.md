@@ -289,7 +289,10 @@ declared type -- a runtime `TypeError` waiting to happen, surfaced
 at compile time. Inference is intentionally narrow (literals,
 `new ClassName(...)`, `true` / `false` / `null` const fetches) to
 avoid false positives on arguments whose type would require flow
-analysis to know.
+analysis to know. The argument check also applies the type argument
+of an instance-method turbofish (`$obj->m::<T>(...)`); a variable
+turbofish (`$f::<T>(...)`) over an unknown callee is conservatively
+skipped to avoid false positives.
 
 ---
 
