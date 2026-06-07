@@ -121,6 +121,70 @@ final class BoundErrorCodeActionProviderTest extends TestCase
         self::assertSame(3, $covered->end->character - $covered->start->character);
     }
 
+    public function testFirstViolatedSlotIsTargetedWhenBothViolate(): void
+    {
+        // BOTH type args violate their bounds; the fix must target the FIRST
+        // violated slot's type-argument (`int`), not the second (`bool`).
+        $actions = $this->actionsForUse([
+            '/Stringy.xphp' => self::STRINGY,
+            '/Pair.xphp' => "<?php\nnamespace App;\nclass Pair<A: \\Stringable, B: \\Stringable> { public A \$a; public B \$b; }\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Pair::<int, bool>();\n",
+        ]);
+
+        $swap = self::actionTitled($actions, 'Change type argument to Stringy');
+        $range = $swap->edit->documentChanges[0]->edits[0]->range;
+        // The edit lands on the FIRST arg `int`, not the second `bool`.
+        self::assertSame(strlen('$x = new Pair::<'), $range->start->character);
+        self::assertSame(3, $range->end->character - $range->start->character);
+    }
+
+    public function testIntersectionBoundOffersImplementPerMissingLeaf(): void
+    {
+        // `Box<T : Animal & Comparable>`; the concrete `Half` implements Animal
+        // but NOT Comparable -- exactly one implement fix for the missing leaf.
+        $actions = $this->actionsForUse([
+            '/Box.xphp' => "<?php\nnamespace App;\ninterface Animal {}\ninterface Comparable {}\nclass Box<T : Animal & Comparable> {}\n",
+            '/Half.xphp' => "<?php\nnamespace App;\nclass Half implements Animal {}\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box::<Half>();\n",
+        ]);
+
+        $titles = self::titles($actions);
+        self::assertContains('Add implements \\App\\Comparable to Half', $titles, 'missing leaf gets an implement fix');
+        self::assertNotContains('Add implements \\App\\Animal to Half', $titles, 'already-implemented leaf gets no fix');
+    }
+
+    public function testIntersectionBoundOffersImplementForEachMissingLeaf(): void
+    {
+        // The concrete implements neither leaf -- one implement fix per leaf.
+        $actions = $this->actionsForUse([
+            '/Box.xphp' => "<?php\nnamespace App;\ninterface Animal {}\ninterface Comparable {}\nclass Box<T : Animal & Comparable> {}\n",
+            '/None.xphp' => "<?php\nnamespace App;\nclass None {}\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box::<None>();\n",
+        ]);
+
+        $titles = self::titles($actions);
+        self::assertContains('Add implements \\App\\Animal to None', $titles);
+        self::assertContains('Add implements \\App\\Comparable to None', $titles);
+    }
+
+    public function testUnionBoundSuppressesImplementFix(): void
+    {
+        // `Box<T : Cat | Dog>`; implementing either would satisfy it, so an
+        // implement fix is ambiguous and suppressed -- only the swap remains.
+        $actions = $this->actionsForUse([
+            '/Box.xphp' => "<?php\nnamespace App;\ninterface Cat {}\ninterface Dog {}\nclass Tabby implements Cat {}\nclass Box<T : Cat | Dog> {}\n",
+            '/None.xphp' => "<?php\nnamespace App;\nclass None {}\n",
+            '/Use.xphp' => "<?php\nnamespace App;\n\$x = new Box::<None>();\n",
+        ]);
+
+        $titles = self::titles($actions);
+        foreach ($titles as $title) {
+            self::assertStringStartsNotWith('Add implements', $title, 'union bound must not offer an implement fix');
+        }
+        // The swap fix is still offered (Tabby satisfies the union via Cat).
+        self::assertContains('Change type argument to Tabby', $titles);
+    }
+
     /**
      * @param array<string, string> $sources
      * @return list<CodeAction>

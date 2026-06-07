@@ -48,3 +48,53 @@ Feature: Quick-fixes for generic bound violations
     Then a code action titled "Add implements \Stringable to Money" is offered
     And the "Add implements \Stringable to Money" action inserts "implements \Stringable"
     And a code action titled "Change type argument to Stringy" is offered
+
+  Scenario: Offer an implement fix per missing leaf of an intersection bound
+    Given the file at "/Pair.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      interface Animal {}
+      interface Comparable {}
+      class Pair<T : Animal & Comparable> { public T $item; }
+      """
+    And the file at "/Half.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Half implements Animal {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $x = new Pair::<Half>();
+      """
+    When I request code actions for the "xphp.bound" diagnostic in "/Use.xphp"
+    Then a code action titled "Add implements \App\Comparable to Half" is offered
+
+  Scenario: A union bound offers no implement fix
+    Given the file at "/U.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      interface Cat {}
+      interface Dog {}
+      class Tabby implements Cat {}
+      class U<T : Cat | Dog> { public T $item; }
+      """
+    And the file at "/None.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class None {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $x = new U::<None>();
+      """
+    When I request code actions for the "xphp.bound" diagnostic in "/Use.xphp"
+    Then a code action titled "Change type argument to Tabby" is offered
+    And no code action titled "Add implements \App\Cat to None" is offered

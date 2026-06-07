@@ -28,11 +28,14 @@ use XPHP\Lsp\Analyzer\DiagnosticCode;
  * source or message text.
  *
  * Two fixes:
- *   - "Change type argument to <Candidate>" -- one per bound-satisfying
- *     workspace type, replacing the offending type-argument. Works even when
- *     the concrete type is a scalar.
- *   - "Add implements \Bound to <Concrete>" -- a cross-file edit on the
- *     offending concrete class (only when it's an editable open class).
+ *   - "Change type argument to <Candidate>" -- one per workspace type that
+ *     satisfies the WHOLE bound (every leaf of an intersection, any leaf of a
+ *     union), replacing the offending type-argument. Works even when the
+ *     concrete type is a scalar.
+ *   - "Add implements \Leaf to <Concrete>" -- one cross-file edit per bound
+ *     leaf the concrete class is missing (only when it's an editable open
+ *     class). Suppressed for union bounds, where implementing any single leaf
+ *     would satisfy it but choosing one is ambiguous.
  */
 final class BoundErrorCodeActionProvider
 {
@@ -97,26 +100,36 @@ final class BoundErrorCodeActionProvider
      */
     private function implementActions(Diagnostic $diagnostic, array $data): array
     {
-        $insert = $data['implementsInsert'] ?? null;
-        $bound = $data['bound'] ?? null;
+        // One implement fix per MISSING leaf. The analyzer emits an entry per
+        // leaf the concrete class doesn't yet implement (and emits none for a
+        // union bound, where implementing any single leaf would suffice but
+        // picking one is ambiguous, or for a scalar concrete).
+        $inserts = $data['implementsInserts'] ?? null;
         $concrete = $data['concrete'] ?? null;
-        if (!is_array($insert) || !is_string($bound) || !is_string($concrete)) {
+        if (!is_array($inserts) || !is_string($concrete)) {
             return [];
         }
-        $uri = $insert['uri'] ?? null;
-        $line = $insert['line'] ?? null;
-        $character = $insert['character'] ?? null;
-        $newText = $insert['newText'] ?? null;
-        if (!is_string($uri) || !is_int($line) || !is_int($character) || !is_string($newText)) {
-            return [];
-        }
-        $point = new Position($line, $character);
         $concreteShort = strrpos($concrete, '\\') !== false
             ? substr($concrete, strrpos($concrete, '\\') + 1)
             : $concrete;
-        return [
-            new CodeAction(
-                title: sprintf('Add implements \\%s to %s', $bound, $concreteShort),
+        $actions = [];
+        foreach ($inserts as $insert) {
+            if (!is_array($insert)) {
+                continue;
+            }
+            $leaf = $insert['leaf'] ?? null;
+            $uri = $insert['uri'] ?? null;
+            $line = $insert['line'] ?? null;
+            $character = $insert['character'] ?? null;
+            $newText = $insert['newText'] ?? null;
+            if (!is_string($leaf) || !is_string($uri) || !is_int($line)
+                || !is_int($character) || !is_string($newText)
+            ) {
+                continue;
+            }
+            $point = new Position($line, $character);
+            $actions[] = new CodeAction(
+                title: sprintf('Add implements \\%s to %s', $leaf, $concreteShort),
                 kind: CodeActionKind::QUICK_FIX,
                 diagnostics: [$diagnostic],
                 edit: new WorkspaceEdit(null, [
@@ -125,8 +138,9 @@ final class BoundErrorCodeActionProvider
                         [new TextEdit(new Range($point, $point), $newText)],
                     ),
                 ]),
-            ),
-        ];
+            );
+        }
+        return $actions;
     }
 
     /**

@@ -567,6 +567,15 @@
         // can't be distinguished by any AST nikic would actually emit.
         "LogicalOr": {
             "ignore": [
+                // BoundErrorCodeActionProvider::implementActions payload
+                // guards: the `!is_array($inserts) || !is_string($concrete)`
+                // and the per-insert 5-clause `is_string/is_int` validation
+                // are jointly defensive against a malformed `data` payload --
+                // the analyzer always emits complete inserts, so no single-
+                // clause divergence is reachable, and the `diagnostics:
+                // [$diagnostic]` array item is an editor-side back-reference
+                // the action assertions do not inspect.
+                "XPHP\\Lsp\\Resolver\\BoundErrorCodeActionProvider::implementActions",
                 // XphpCompletionHandler::isSubtypeOfLeaf defensive guards:
                 // the `ltrim($x, "\\")` normalisations (workspace candidate
                 // FQNs and bound leaves already arrive without a leading
@@ -924,6 +933,11 @@
         //     'uri' key is always a PHP string from FqnIndex.
         "CastString": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData `(string) displayString($bound)`
+                // -- reached only in the violated-slot branch where $bound is
+                // non-null, so displayString returns a string and the cast is
+                // a no-op.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 // Turbofish/bound view equivalent mutants: defensive
                 // bounds guards (offset/index range checks where >/>=
                 // converge because the surrounding byte re-check rejects
@@ -1341,6 +1355,15 @@
         },
         "ArrayItemRemoval": {
             "ignore": [
+                // BoundErrorCodeActionProvider::implementActions payload
+                // guards: the `!is_array($inserts) || !is_string($concrete)`
+                // and the per-insert 5-clause `is_string/is_int` validation
+                // are jointly defensive against a malformed `data` payload --
+                // the analyzer always emits complete inserts, so no single-
+                // clause divergence is reachable, and the `diagnostics:
+                // [$diagnostic]` array item is an editor-side back-reference
+                // the action assertions do not inspect.
+                "XPHP\\Lsp\\Resolver\\BoundErrorCodeActionProvider::implementActions",
                 // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
                 // the segment-split loop bounds, the `break` after the
                 // closing `>`, and the leading/trailing whitespace-trim

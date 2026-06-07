@@ -13,6 +13,7 @@ use RuntimeException;
 use XPHP\Lsp\Handler\TurbofishScanner;
 use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Resolver\BoundExprView;
+use XPHP\Transpiler\Monomorphize\BoundUnion;
 use XPHP\Transpiler\Monomorphize\Registry;
 use XPHP\Transpiler\Monomorphize\TypeHierarchy;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -414,20 +415,21 @@ final readonly class WorkspaceAnalyzer
             return null;
         }
 
-        // The single-leaf candidate / implements fix-its below key off the
-        // first leaf FQN; the composite-aware payload arrives later.
-        $boundLeaves = BoundExprView::leafFqns($typeParams[$index]->bound);
-        $primaryLeaf = $boundLeaves[0] ?? '';
+        $bound = $typeParams[$index]->bound;
+        // Human-readable bound for the action titles, plus the flat leaf list
+        // the implement fix-its key off.
+        $boundDisplay = (string) BoundExprView::displayString($bound);
+        $boundLeaves = BoundExprView::leafFqns($bound);
         $concrete = ltrim((string) $args[$index]->name, '\\');
         $concreteIsScalar = (bool) ($args[$index]->isScalar ?? false);
 
-        // Candidate concrete types that satisfy the bound (for the "swap" fix).
+        // Candidate concrete types that satisfy the WHOLE bound tree (swap fix).
         $candidates = [];
         foreach ($allClassFqns as $candidateFqn) {
             if ($candidateFqn === $concrete) {
                 continue;
             }
-            if (BoundExprView::isSatisfiedBy($candidateFqn, $typeParams[$index]->bound, $isSubtype)) {
+            if (BoundExprView::isSatisfiedBy($candidateFqn, $bound, $isSubtype)) {
                 $short = strrpos($candidateFqn, '\\') !== false
                     ? substr($candidateFqn, strrpos($candidateFqn, '\\') + 1)
                     : $candidateFqn;
@@ -438,17 +440,30 @@ final readonly class WorkspaceAnalyzer
         sort($candidateNames);
         $candidateNames = array_slice($candidateNames, 0, 3);
 
+        // Implement fix-its: one per MISSING leaf for intersection/leaf bounds
+        // (the concrete must satisfy every leaf), suppressed for union bounds
+        // (implementing any single leaf satisfies it -- ambiguous to pick one).
+        $implementsInserts = [];
+        if (!$concreteIsScalar && !$bound instanceof BoundUnion) {
+            $entry = $openClasses[$concrete] ?? null;
+            foreach ($boundLeaves as $leaf) {
+                $insert = self::implementsInsert($entry, $leaf);
+                if ($insert !== null) {
+                    $implementsInserts[] = ['leaf' => $leaf] + $insert;
+                }
+            }
+        }
+
         return [
             'kind' => 'bound',
             'param' => $typeParams[$index]->name,
-            'bound' => $primaryLeaf,
+            'bound' => $boundDisplay,
+            'boundLeaves' => $boundLeaves,
             'concrete' => $concrete,
             'concreteIsScalar' => $concreteIsScalar,
             'typeArgRange' => self::typeArgRange($source, $node->getEndFilePos() + 1, $index, $positionMap),
             'candidates' => $candidateNames,
-            'implementsInsert' => $concreteIsScalar
-                ? null
-                : self::implementsInsert($openClasses[$concrete] ?? null, $primaryLeaf),
+            'implementsInserts' => $implementsInserts,
         ];
     }
 
