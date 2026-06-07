@@ -65,6 +65,49 @@ final class TurbofishScannerTest extends TestCase
         self::assertNull(TurbofishScanner::detectCursorInClause('Box::<', -1));
     }
 
+    public function testRejectsOffsetPastSourceLength(): void
+    {
+        self::assertNull(TurbofishScanner::detectCursorInClause('Box::<', 999));
+    }
+
+    public function testDetectsAtSlotAfterTwoCommas(): void
+    {
+        $source = 'Map::<A, B, ';
+        $hit = TurbofishScanner::detectCursorInClause($source, strlen($source));
+        self::assertSame(['prefix' => '', 'containerName' => 'Map', 'slot' => 2], $hit);
+    }
+
+    public function testNestedBareInsideTurbofishCapturesInnerContainer(): void
+    {
+        // `Box::<List<Pla` -- inner bare container is `List`, slot 0; the outer
+        // turbofish (`Box::<`) anchors the whole thing.
+        $source = 'Box::<List<Pla';
+        $hit = TurbofishScanner::detectCursorInClause($source, strlen($source));
+        self::assertSame(['prefix' => 'Pla', 'containerName' => 'List', 'slot' => 0], $hit);
+    }
+
+    public function testNestedBareWithoutOuterTurbofishIsRejected(): void
+    {
+        // `Box<List<Pla` -- no `::` anywhere; not a turbofish at all.
+        $source = 'Box<List<Pla';
+        self::assertNull(TurbofishScanner::detectCursorInClause($source, strlen($source)));
+    }
+
+    public function testWhitespaceAfterDoubleColonBeforeAngle(): void
+    {
+        // The opener tolerates whitespace between `::` and `<`.
+        $source = 'Box:: <';
+        $hit = TurbofishScanner::detectCursorInClause($source, strlen($source));
+        self::assertSame('Box', $hit['containerName']);
+    }
+
+    public function testBreaksOnSemicolonInsideWalk(): void
+    {
+        // A `;` before reaching any `<` breaks the clause context.
+        $source = '$y; Box';
+        self::assertNull(TurbofishScanner::detectCursorInClause($source, strlen($source)));
+    }
+
     // --- clauseAfter -----------------------------------------------------
 
     public function testClauseAfterFindsTurbofishRange(): void
@@ -106,6 +149,35 @@ final class TurbofishScannerTest extends TestCase
         self::assertSame(strlen($source) - 1, $range['closePos']);
     }
 
+    public function testClauseAfterRejectsSingleColon(): void
+    {
+        // A single `:` followed by `<` is not a turbofish opener.
+        $source = 'Box:<int>';
+        self::assertNull(TurbofishScanner::clauseAfter($source, 2));
+    }
+
+    public function testClauseAfterRejectsDoubleColonWithoutAngle(): void
+    {
+        // `Box::BAR` -- `::` present but no `<` follows.
+        $source = 'Box::BAR';
+        self::assertNull(TurbofishScanner::clauseAfter($source, 2));
+    }
+
+    public function testClauseAfterRejectsDoubleColonAtEndOfSource(): void
+    {
+        // `::` is the last two bytes -- nothing to open.
+        $source = 'Box::';
+        self::assertNull(TurbofishScanner::clauseAfter($source, 2));
+    }
+
+    public function testClauseAfterFindsSingleByteArg(): void
+    {
+        $source = 'Box::<T>';
+        $range = TurbofishScanner::clauseAfter($source, 2);
+        self::assertSame(5, $range['openPos']);
+        self::assertSame(7, $range['closePos']);
+    }
+
     // --- splitTopLevelArgs ----------------------------------------------
 
     public function testSplitEmptyInnerYieldsNoArgs(): void
@@ -127,6 +199,23 @@ final class TurbofishScannerTest extends TestCase
     public function testSplitDoesNotBreakOnNestedCommas(): void
     {
         self::assertSame(['Map<K, V>', 'int'], TurbofishScanner::splitTopLevelArgs('Map<K, V>, int'));
+    }
+
+    public function testSplitClosesNestingBeforeTrailingComma(): void
+    {
+        // The `>` must decrement depth so the comma AFTER the nested clause
+        // splits at top level.
+        self::assertSame(['List<int>', 'string'], TurbofishScanner::splitTopLevelArgs('List<int>, string'));
+    }
+
+    public function testSplitDeeplyNested(): void
+    {
+        self::assertSame(['Map<K, List<V>>', 'int'], TurbofishScanner::splitTopLevelArgs('Map<K, List<V>>, int'));
+    }
+
+    public function testSplitTrimsEachArg(): void
+    {
+        self::assertSame(['A', 'B', 'C'], TurbofishScanner::splitTopLevelArgs('  A ,  B ,C  '));
     }
 
     // --- topLevelArgIndexAt ---------------------------------------------
@@ -152,5 +241,20 @@ final class TurbofishScannerTest extends TestCase
     {
         self::assertNull(TurbofishScanner::topLevelArgIndexAt('abc', 99));
         self::assertNull(TurbofishScanner::topLevelArgIndexAt('abc', -1));
+    }
+
+    public function testArgIndexAtAcceptsOffsetEqualToLength(): void
+    {
+        // Offset exactly at the end of the inner text is in-range (cursor just
+        // past the last byte).
+        self::assertSame(1, TurbofishScanner::topLevelArgIndexAt('A,B', 3));
+    }
+
+    public function testArgIndexAtClosesNestingThenCounts(): void
+    {
+        // After the nested `<int>` closes, the top-level comma increments.
+        $inner = 'List<int>,X';
+        self::assertSame(0, TurbofishScanner::topLevelArgIndexAt($inner, 9));
+        self::assertSame(1, TurbofishScanner::topLevelArgIndexAt($inner, 10));
     }
 }

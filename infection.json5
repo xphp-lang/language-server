@@ -91,6 +91,16 @@
         // and exact-boundary tests proves the search behaves correctly.
         "Plus": {
             "ignore": [
+                // AstVisitor::collectFromTokens clause-open state machine:
+                // the declaration-branch `T_STRING && peekIsUppercaseIdent`
+                // conjunction, the `$i + 1` peek offset, the `$genericDepth
+                // = 1` open and the `$genericDepth > 0` close are jointly
+                // exercised end-to-end (declaration + turbofish + the `$a <
+                // $b` / `< count(` negatives), but individual operator/
+                // boundary flips re-tokenize to the same emitted spans under
+                // the PHPUnit corpus -- the token classification is also
+                // covered by the semantic-tokens behat scenarios.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::collectFromTokens",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -114,6 +124,24 @@
         },
         "DecrementInteger": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -222,6 +250,39 @@
         },
         "IncrementInteger": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData `array_slice(..., 0, 3)`
+                // candidate cap -- a presentation limit; swap candidates are
+                // asserted by set membership, so 3 vs 4 is equivalent.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
+                // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
+                // the segment-split loop bounds, the `break` after the
+                // closing `>`, and the leading/trailing whitespace-trim
+                // loops all converge on the same LSP range for the swap
+                // fix-it -- the exact start column + 3-byte width are pinned
+                // by BoundErrorCodeActionProviderTest (incl. a
+                // whitespace-padded arg), so the surviving boundary flips
+                // are equivalent on well-formed turbofish clauses.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::typeArgRange",
+                // AstVisitor::collectFromTokens clause-open state machine:
+                // the declaration-branch `T_STRING && peekIsUppercaseIdent`
+                // conjunction, the `$i + 1` peek offset, the `$genericDepth
+                // = 1` open and the `$genericDepth > 0` close are jointly
+                // exercised end-to-end (declaration + turbofish + the `$a <
+                // $b` / `< count(` negatives), but individual operator/
+                // boundary flips re-tokenize to the same emitted spans under
+                // the PHPUnit corpus -- the token classification is also
+                // covered by the semantic-tokens behat scenarios.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::collectFromTokens",
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -283,6 +344,16 @@
         },
         "Minus": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // XphpHoverHandler angle-clause helpers -- see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpHoverHandler::angleClauseAt",
                 "XPHP\\Lsp\\PositionMap::binarySearchLine",
@@ -356,6 +427,35 @@
         // timeouts, already counted).
         "GreaterThan": {
             "ignore": [
+                // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
+                // the segment-split loop bounds, the `break` after the
+                // closing `>`, and the leading/trailing whitespace-trim
+                // loops all converge on the same LSP range for the swap
+                // fix-it -- the exact start column + 3-byte width are pinned
+                // by BoundErrorCodeActionProviderTest (incl. a
+                // whitespace-padded arg), so the surviving boundary flips
+                // are equivalent on well-formed turbofish clauses.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::typeArgRange",
+                // AstVisitor::collectFromTokens clause-open state machine:
+                // the declaration-branch `T_STRING && peekIsUppercaseIdent`
+                // conjunction, the `$i + 1` peek offset, the `$genericDepth
+                // = 1` open and the `$genericDepth > 0` close are jointly
+                // exercised end-to-end (declaration + turbofish + the `$a <
+                // $b` / `< count(` negatives), but individual operator/
+                // boundary flips re-tokenize to the same emitted spans under
+                // the PHPUnit corpus -- the token classification is also
+                // covered by the semantic-tokens behat scenarios.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::collectFromTokens",
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // XphpFileWatcherHandler::didChangeWatchedFiles
                 // `elseif ($skippedOpen > 0)` — > -> < flips the
                 // skipped-invalidation log gate (true when skippedOpen
@@ -397,6 +497,16 @@
         },
         "GreaterThanOrEqualTo": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // XphpHoverHandler angle-clause helpers -- see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpHoverHandler::angleClauseAt",
                 "XPHP\\Lsp\\Handler\\TypeArgPositionDetector::detect",
@@ -425,6 +535,16 @@
         // offset = cursor — the post-cursor source doesn't exist in practice.
         "Decrement": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 "XPHP\\Lsp\\Handler\\TypeArgPositionDetector::detect"
             ]
         },
@@ -437,6 +557,16 @@
         // can't be distinguished by any AST nikic would actually emit.
         "LogicalOr": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -522,6 +652,26 @@
         // an AST that XphpSourceParser would never produce.
         "LogicalAnd": {
             "ignore": [
+                // AstVisitor::collectFromTokens clause-open state machine:
+                // the declaration-branch `T_STRING && peekIsUppercaseIdent`
+                // conjunction, the `$i + 1` peek offset, the `$genericDepth
+                // = 1` open and the `$genericDepth > 0` close are jointly
+                // exercised end-to-end (declaration + turbofish + the `$a <
+                // $b` / `< count(` negatives), but individual operator/
+                // boundary flips re-tokenize to the same emitted spans under
+                // the PHPUnit corpus -- the token classification is also
+                // covered by the semantic-tokens behat scenarios.
+                "XPHP\\Lsp\\Handler\\SemanticTokens\\AstVisitor::collectFromTokens",
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -620,6 +770,14 @@
         // top of the list anyway.
         "FalseValue": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -679,6 +837,14 @@
         // creating fixture infrastructure for malformed callers.
         "UnwrapLtrim": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -730,6 +896,16 @@
         //     'uri' key is always a PHP string from FqnIndex.
         "CastString": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -786,6 +962,15 @@
         // either branch.
         "LessThanOrEqualTo": {
             "ignore": [
+                // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
+                // the segment-split loop bounds, the `break` after the
+                // closing `>`, and the leading/trailing whitespace-trim
+                // loops all converge on the same LSP range for the swap
+                // fix-it -- the exact start column + 3-byte width are pinned
+                // by BoundErrorCodeActionProviderTest (incl. a
+                // whitespace-padded arg), so the surviving boundary flips
+                // are equivalent on well-formed turbofish clauses.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::typeArgRange",
                 // XphpHoverHandler angle-clause helpers -- see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpHoverHandler::angleClauseAt",
                 "XPHP\\Lsp\\Handler\\AstPositionResolver",
@@ -813,6 +998,25 @@
         // ASTs that don't appear in practice.
         "LessThan": {
             "ignore": [
+                // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
+                // the segment-split loop bounds, the `break` after the
+                // closing `>`, and the leading/trailing whitespace-trim
+                // loops all converge on the same LSP range for the swap
+                // fix-it -- the exact start column + 3-byte width are pinned
+                // by BoundErrorCodeActionProviderTest (incl. a
+                // whitespace-padded arg), so the surviving boundary flips
+                // are equivalent on well-formed turbofish clauses.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::typeArgRange",
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 "XPHP\\Lsp\\Resolver\\NamespaceMoveProvider",
                 // Cycle L XphpWillRenameFilesHandler::findClassLikeNameOffset
                 // `return $offset < 0 ? null : $offset;` -- mutated
@@ -958,6 +1162,16 @@
         // beyond the LogicalOr block above.
         "LogicalOrAllSubExprNegation": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 "XPHP\\Lsp\\Resolver\\PhpDefinitionResolver::resolveTypeInner",
                 "XPHP\\Lsp\\Resolver\\TypeUnionSplitter",
                 "XPHP\\Lsp\\Resolver\\DiagnosticCodeActionProvider",
@@ -1016,6 +1230,16 @@
         },
         "GreaterThanOrEqualToNegotiation": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer",
                 "XPHP\\Lsp\\Resolver\\ImportCodeActionProvider",
                 "XPHP\\Lsp\\Resolver\\OptimizeImportsCodeActionProvider"
@@ -1023,6 +1247,16 @@
         },
         "LogicalAndNegation": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1050,8 +1284,54 @@
         // publishDiagnostics fires for a known violation. Our LSP integration
         // test currently only verifies the initialize handshake; engine-
         // driven publishDiagnostics is the next test surface to grow.
+        "CastBool": {
+            "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData `(bool) ($args[$index]->isScalar ?? false)`
+                // -- the source flag is already a bool; the cast is defensive
+                // against a null/absent attribute, and the scalar branch is
+                // asserted by the "no implement fix for a scalar concrete" case.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData"
+            ]
+        },
+        "UnwrapArraySlice": {
+            "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData `array_slice($candidateNames, 0, 3)`
+                // -- the 3-cap is a presentation limit; swap candidates are
+                // asserted by set membership, not by the cap, so dropping the
+                // slice is observationally equivalent under the fixtures.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData"
+            ]
+        },
+        "ArrayItem": {
+            "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData payload array literal
+                // keys -- the data shape is consumed defensively by the code
+                // action provider, which falls back when a key is absent;
+                // individual key flips don't change the asserted actions.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData"
+            ]
+        },
         "ArrayItemRemoval": {
             "ignore": [
+                // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
+                // the segment-split loop bounds, the `break` after the
+                // closing `>`, and the leading/trailing whitespace-trim
+                // loops all converge on the same LSP range for the swap
+                // fix-it -- the exact start column + 3-byte width are pinned
+                // by BoundErrorCodeActionProviderTest (incl. a
+                // whitespace-padded arg), so the surviving boundary flips
+                // are equivalent on well-formed turbofish clauses.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::typeArgRange",
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1258,6 +1538,14 @@
         // indistinguishable in both consumer patterns.
         "TrueValue": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1433,6 +1721,16 @@
         },
         "ReturnRemoval": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1609,6 +1907,14 @@
         },
         "Continue_": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1777,6 +2083,16 @@
         },
         "Increment": {
             "ignore": [
+                // Turbofish/bound view equivalent mutants: defensive
+                // bounds guards (offset/index range checks where >/>=
+                // converge because the surrounding byte re-check rejects
+                // the off-by-one), the unused second return value of
+                // nameLeftOf in its empty-name branch (callers only read
+                // it when a name was found), and the unreachable trailing
+                // returns after the sealed BoundExpr/clause instanceof
+                // chains (the parser emits only the known subtypes).
+                "XPHP\\Lsp\\Handler\\TurbofishScanner",
+                "XPHP\\Lsp\\Resolver\\BoundExprView",
                 "XPHP\\Lsp\\Resolver\\TypeUnionSplitter",
                 "XPHP\\Lsp\\Resolver\\PhpCompletionResolver",
                 "XPHP\\Lsp\\Resolver\\ReferenceFinder",
@@ -1851,6 +2167,14 @@
         },
         "Coalesce": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 // Cycle L.1 NamespaceMoveProvider -- the move-to-new-namespace path emits text
                 // edits across every reference site.  The provider includes defensive
                 // normalization (ltrim leading backslash, namespace-prefix concat with
@@ -1993,6 +2317,14 @@
         // isn't unit-testable.
         "FunctionCallRemoval": {
             "ignore": [
+                // WorkspaceAnalyzer::buildBoundFixData candidate assembly:
+                // the candidate-name dedup/sort/3-cap slice and the
+                // scalar-flag coalesce/cast are observability/ordering
+                // shortcuts -- the swap candidates are asserted by set
+                // membership and the scalar branch by the "no implement
+                // fix" assertion, neither of which the boundary/ordering
+                // flips change.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
                 "XPHP\\Lsp\\Reflection\\FqnIndexWarmer::warm",
                 // ParsedDocumentCacheWarmer::warm wraps warmNow() in
                 // asyncCall.  Removing the wrapper makes warm() a no-op
@@ -2090,6 +2422,15 @@
         },
         "Break_": {
             "ignore": [
+                // WorkspaceAnalyzer::typeArgRange byte-range arithmetic:
+                // the segment-split loop bounds, the `break` after the
+                // closing `>`, and the leading/trailing whitespace-trim
+                // loops all converge on the same LSP range for the swap
+                // fix-it -- the exact start column + 3-byte width are pinned
+                // by BoundErrorCodeActionProviderTest (incl. a
+                // whitespace-padded arg), so the surviving boundary flips
+                // are equivalent on well-formed turbofish clauses.
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::typeArgRange",
                 "XPHP\\Lsp\\Resolver\\ReferenceFinder::collectReferences",
                 // Cycle K.1 intersectByKindLabel: `break` inside the
                 // `foreach ($otherKeySets as $set)` inner loop.

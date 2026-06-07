@@ -196,4 +196,15 @@ final class TypeArgPositionDetectorTest extends TestCase
         $offset = strpos($source, 'User') + 1;
         self::assertSame('App\\Models\\User', TypeArgPositionDetector::identifierAt($source, $offset));
     }
+
+    public function testIdentifierAtForwardScansBackslashToEndOfSource(): void
+    {
+        // Cursor right after `<`, forward scan must walk identifier bytes
+        // INCLUDING backslashes all the way to the end of source (the clause
+        // is unterminated). Locks the forward-scan length bound and the `\\`
+        // arm of the identifier-byte predicate.
+        $source = 'identity::<App\\Models\\User';
+        $offset = strpos($source, 'App');
+        self::assertSame('App\\Models\\User', TypeArgPositionDetector::identifierAt($source, $offset));
+    }
 }
