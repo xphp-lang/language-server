@@ -301,6 +301,59 @@ final class AstVisitorTest extends TestCase
         $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
     }
 
+    public function testArrowClosureDeclarationClausePaintsTypeParam(): void
+    {
+        // `fn<T>(…)` -- the declaration clause `<T>` opens after the `fn`
+        // keyword; `T` is a typeParameter.
+        $source = "<?php\n\$g = fn<T>(\$x) => \$x;";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'T', 'typeParameter');
+    }
+
+    public function testClosureDeclarationClausePaintsTypeParam(): void
+    {
+        // `function<U>(…)` -- the declaration clause opens after `function`.
+        $source = "<?php\n\$h = function<U>(\$y) { return \$y; };";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'U', 'typeParameter');
+    }
+
+    public function testGenericClosureBodyReifiedTPaintsAsTypeParameter(): void
+    {
+        // Body-level `T` inside a generic closure re-classifies via the
+        // closure's ATTR_METHOD_GENERIC_PARAMS frame -- assert the `new T()`
+        // body reference SPECIFICALLY (not just the decl-clause `T`, which the
+        // token pass classifies independently).
+        $source = "<?php\n\$make = function<T>() { return new T(); };";
+        $specs = $this->collect($source);
+        $bodyTOffset = strpos($source, 'new T()') + strlen('new ');
+        $bodyTSpecs = array_filter(
+            $specs,
+            fn (TokenSpec $s) => self::substring($source, $s) === 'T'
+                && $s->type === 'typeParameter'
+                && self::specByteOffset($source, $s) === $bodyTOffset,
+        );
+        self::assertCount(1, $bodyTSpecs, 'the body-level new T() must classify as typeParameter');
+    }
+
+    public function testTReferenceOutsideGenericClosureNotMisclassified(): void
+    {
+        // After the generic closure's frame is popped, a bare `new T()` in a
+        // non-generic context must NOT classify as a type parameter.
+        $source = "<?php\n\$g = function<T>() { return new T(); };\nnew T();";
+        $specs = $this->collect($source);
+        // The trailing `new T()` (line 2, after the closure) sits at a byte
+        // offset past the closure; assert no typeParameter spec starts there.
+        $closureEnd = strpos($source, '};');
+        $strayT = array_filter(
+            $specs,
+            fn (TokenSpec $s) => $s->type === 'typeParameter'
+                && self::substring($source, $s) === 'T'
+                && self::specByteOffset($source, $s) > $closureEnd,
+        );
+        self::assertEmpty($strayT, 'T outside the closure frame must not be a type parameter');
+    }
+
     public function testBareDoubleColonWithoutAngleOpensNothing(): void
     {
         // `Foo::BAR` is a constant access -- no `<` follows the `::`, so no
@@ -563,15 +616,17 @@ final class AstVisitorTest extends TestCase
 
     private static function substring(string $source, TokenSpec $spec): string
     {
-        // Convert (line, char) back to byte offset for substring lookup.
-        // PositionMap can do this; we re-derive offsets via line scan to
-        // keep this helper self-contained.
+        return substr($source, self::specByteOffset($source, $spec), $spec->length);
+    }
+
+    private static function specByteOffset(string $source, TokenSpec $spec): int
+    {
+        // Convert (line, char) back to byte offset.
         $lines = explode("\n", $source);
         $byteOffset = 0;
         for ($i = 0; $i < $spec->line && $i < count($lines); $i++) {
             $byteOffset += strlen($lines[$i]) + 1; // +1 for the \n
         }
-        $byteOffset += $spec->startChar;
-        return substr($source, $byteOffset, $spec->length);
+        return $byteOffset + $spec->startChar;
     }
 }
