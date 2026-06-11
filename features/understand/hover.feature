@@ -60,3 +60,46 @@ Feature: Hover
     When I request "textDocument/hover" on "T" at line 4 of "/producer.xphp"
     Then the hover contents contain "`+T`"
     And the hover contents contain "covariant"
+
+  Scenario: Hover over a generic method turbofish call shows the specialized signature
+    Given the file at "/Util.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Util
+      {
+          public function identity<T>(T $x): T { return $x; }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Util;
+      $u = new Util();
+      $s = $u->identity::<string>('world');
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
+    Then the hover contents contain "identity(string $x): string"
+
+  Scenario: Hover over a method returning static resolves to the receiver's concrete type
+    Given the file at "/Builder.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Builder<T>
+      {
+          public function __construct(public T $value) {}
+          public function fresh(T $v): static { return new static::<T>($v); }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Builder;
+      $a = new Builder::<int>(1);
+      $b = $a->fresh(2);
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "fresh" at line 3 of "/Use.xphp"
+    Then the hover contents contain "fresh(int $v): App\Builder<int>"

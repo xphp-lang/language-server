@@ -120,6 +120,12 @@ final class GenericResolver
         // path renders just `App\Containers\Collection` (the worse-reflection
         // view); ours adds the type-arg context.
         if ($binding instanceof VarBinding) {
+            // Empty paramMap = a non-generic receiver recorded only to type
+            // method-call receivers (see buildFromPlainNew).  Render nothing
+            // so plain-object hover keeps deferring to worse-reflection.
+            if ($binding->paramMap === []) {
+                return null;
+            }
             return $this->renderBinding($binding);
         }
         return $binding->render();
@@ -142,6 +148,12 @@ final class GenericResolver
         // itself.  Surface it as a non-nullable TypeRef of the class FQN
         // so the completion path can reflect on the class directly.
         if ($binding instanceof VarBinding) {
+            // Empty paramMap = a non-generic receiver recorded only for
+            // method-call receiver typing (see buildFromPlainNew).  Defer to
+            // worse-reflection, which models nullable/union receivers better.
+            if ($binding->paramMap === []) {
+                return null;
+            }
             return new ResolvedType(new TypeRef($binding->classFqn), false);
         }
         // ResolvedType: variable holds the substituted result of a prior
@@ -307,6 +319,13 @@ final class GenericResolver
             return null;
         }
         $paramMap = self::paramMapFromReceiver($classLike, $receiverType);
+        $paramMap = self::withMethodTurbofish($paramMap, $call, $method);
+        // No type params in scope = a plain method on a non-generic receiver;
+        // there is nothing to specialize, so leave the signature to
+        // worse-reflection (and don't emit a generic inlay hint for it).
+        if ($paramMap === []) {
+            return null;
+        }
         $paramNames = array_keys($paramMap);
 
         // Return type.
@@ -315,7 +334,8 @@ final class GenericResolver
             $tuple = self::returnTypeToRef($method->returnType, $paramNames);
             if ($tuple !== null) {
                 [$nullable, $ref] = $tuple;
-                $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+                $substituted = self::relativeTypeToReceiver($ref, $receiverType)
+                    ?? Specializer::substituteTypeRef($ref, $paramMap);
                 $returnTypeRendered = (new ResolvedType($substituted, $nullable))->render();
             }
         }
@@ -446,6 +466,16 @@ final class GenericResolver
             // type the receiver.
             if (!$expr->name instanceof Identifier) {
                 $expr = $expr->var;
+            }
+        }
+        // A plain non-generic receiver variable -- recorded only to type
+        // method-call receivers (see buildFromPlainNew) -- carries no generic
+        // context.  Defer to worse-reflection, which models `@var` unions /
+        // nullables on the receiver that this single-class view would flatten.
+        if ($expr instanceof Variable && is_string($expr->name)) {
+            $binding = $bindings[$expr->name] ?? null;
+            if ($binding instanceof VarBinding && $binding->paramMap === []) {
+                return null;
             }
         }
         $type = self::inferType($expr, $bindings, $this->classes, $this->fqnIndex, [], '');
@@ -1047,7 +1077,16 @@ final class GenericResolver
                 $rhs = $node->expr;
 
                 if ($rhs instanceof New_) {
-                    $binding = GenericResolver::buildFromNew($rhs, $this->classes);
+                    // Generic `new Foo<...>()` -> binding with a paramMap;
+                    // non-generic `new Foo()` -> class-only binding (empty
+                    // paramMap) so method calls on the receiver still resolve.
+                    $binding = GenericResolver::buildFromNew($rhs, $this->classes)
+                        ?? GenericResolver::buildFromPlainNew(
+                            $rhs,
+                            $this->useMap,
+                            $this->currentNamespace,
+                            $this->classes,
+                        );
                     if ($binding !== null) {
                         $this->writeBinding($name, $binding);
                     }
@@ -1170,6 +1209,36 @@ final class GenericResolver
             return null;
         }
         return self::buildFromName($class, $classes);
+    }
+
+    /**
+     * Build a class-only `VarBinding` (empty paramMap) for a NON-generic
+     * `new Foo()`.  This records the receiver's class FQN so method calls on
+     * the variable can resolve -- in particular a generic-method turbofish on
+     * a non-generic receiver, `$u->identity::<int>(...)`, where the binding's
+     * job is purely to type the receiver `$u` as `Foo`; the method's own `T`
+     * is bound later from the call site.
+     *
+     * resolveVariable() deliberately renders nothing for empty-paramMap
+     * bindings, so plain-object hover still defers to worse-reflection -- this
+     * only feeds receiver inference and member completion.
+     *
+     * @param array<string, string> $useMap
+     */
+    public static function buildFromPlainNew(
+        New_ $new,
+        array $useMap,
+        string $currentNamespace,
+        ClassLikeLookup $classes,
+    ): ?VarBinding {
+        if (!$new->class instanceof Name) {
+            return null;
+        }
+        $fqn = self::resolveNameWithUseMap($new->class, $useMap, $currentNamespace);
+        if ($fqn === null || $classes->find($fqn) === null) {
+            return null;
+        }
+        return new VarBinding($fqn, []);
     }
 
     /**
@@ -1319,13 +1388,22 @@ final class GenericResolver
         // an unconstrained or already fully-substituted scalar -- the
         // method's own substitution is a no-op, which is correct.
         $paramMap = self::paramMapFromReceiver($classLike, $receiverType);
+        $paramMap = self::withMethodTurbofish($paramMap, $call, $method);
+        // No type params in scope = nothing generic to substitute (a plain
+        // method on a non-generic receiver).  Return null so the result isn't
+        // recorded as a binding and worse-reflection keeps ownership of it.
+        if ($paramMap === []) {
+            return null;
+        }
         $paramNames = array_keys($paramMap);
 
         [$nullable, $ref] = self::returnTypeToRef($returnType, $paramNames) ?? [null, null];
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        // `static`/`self` bind to the receiver's concrete type, not a param.
+        $substituted = self::relativeTypeToReceiver($ref, $receiverType)
+            ?? Specializer::substituteTypeRef($ref, $paramMap);
         return new ResolvedType($substituted, $nullable);
     }
 
@@ -1456,6 +1534,60 @@ final class GenericResolver
             $map[$p->name] = $args[$i];
         }
         return $map;
+    }
+
+    /**
+     * Merge a generic method's OWN turbofish bindings into a paramMap.
+     *
+     * `$obj->identity::<string>(...)` carries the explicit type args on the
+     * MethodCall node (`ATTR_METHOD_GENERIC_ARGS`); the method declaration
+     * carries the matching type params (`ATTR_METHOD_GENERIC_PARAMS`).
+     * Zipping them binds the method's own `T` to the call-site type, layered
+     * ON TOP of any class-level params already in `$paramMap` (a generic
+     * method on a generic class references both scopes).  No-op when the call
+     * has no turbofish or the arity doesn't match.
+     *
+     * Without this, `resolveMethodCall` substitutes the return type against
+     * only the receiver's class params -- so a generic method on a NON-generic
+     * receiver (`Util::identity<T>`) leaves `T` unbound.  The static-call
+     * paths (`resolveStaticCall` / `resolveStaticCallSubstitutionAt`) already
+     * do exactly this; this is the instance-call equivalent.
+     *
+     * @param array<string, TypeRef> $paramMap
+     * @return array<string, TypeRef>
+     */
+    private static function withMethodTurbofish(array $paramMap, Node $call, ClassMethod $method): array
+    {
+        $args = $call->getAttribute(XphpSourceParser::ATTR_METHOD_GENERIC_ARGS);
+        if (!is_array($args) || $args === []) {
+            return $paramMap;
+        }
+        $params = $method->getAttribute(XphpSourceParser::ATTR_METHOD_GENERIC_PARAMS);
+        if (!is_array($params) || count($params) !== count($args)) {
+            return $paramMap;
+        }
+        foreach ($params as $i => $param) {
+            if ($param instanceof TypeParam && $args[$i] instanceof TypeRef) {
+                $paramMap[$param->name] = $args[$i];
+            }
+        }
+        return $paramMap;
+    }
+
+    /**
+     * Resolve a relative type (`static` / `self` / `$this`) to the receiver's
+     * concrete type.  A method declared `: static` (or `: self`) returns an
+     * instance of the receiver's class, so `$a->fresh()` on `$a: Builder<int>`
+     * is `Builder<int>` -- not the literal keyword.  `Specializer` only swaps
+     * type *params*, so without this the relative keyword passes through
+     * unsubstituted.  Returns null when `$ref` isn't relative, so the caller
+     * falls back to normal type-param substitution.
+     */
+    private static function relativeTypeToReceiver(TypeRef $ref, ResolvedType $receiver): ?TypeRef
+    {
+        return in_array(strtolower($ref->name), ['static', 'self', '$this'], true)
+            ? $receiver->ref
+            : null;
     }
 
     /**

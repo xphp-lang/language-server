@@ -225,6 +225,70 @@ final class GenericResolverTest extends TestCase
         self::assertNull($resolver->resolveVariable('/Use.xphp', 'g', PHP_INT_MAX));
     }
 
+    public function testInstanceMethodTurbofishOnLocalVariableReceiverSpecializes(): void
+    {
+        // Regression for the `generic_method_local_variable_receiver` fixture:
+        // a generic method called with turbofish on a NON-generic, locally
+        // bound receiver.  The method's own type-param T binds to the call-site
+        // type arg (int / string), independent of the receiver's (absent)
+        // class-level params.  Previously the resolver consulted ONLY the
+        // receiver's class params, so T stayed unbound and `$i`/`$s` hovered as
+        // bare `T`.  The static-call path (`Util::identity::<int>(...)`) already
+        // worked; this pins the instance-call equivalent.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Util.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Util {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Util;
+        $u = new Util();
+        $i = $u->identity::<int>(99);
+        $s = $u->identity::<string>('world');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
+    public function testRelativeStaticReturnResolvesToReceiverType(): void
+    {
+        // Regression for the `generic_method_new_static_turbofish` fixture:
+        // `fresh(T $v): static` returns a relative (late-static-bound) type.
+        // On a `Builder<int>` receiver that is the receiver's own concrete
+        // type, so `$b` is `Builder<int>` -- NOT the literal `static`.
+        // Specializer only swaps type *params*; `static`/`self` must be
+        // bound to the receiver separately.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Builder.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Builder<T> {
+            public function __construct(public T $value) {}
+            public function fresh(T $v): static { return new static::<T>($v); }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Builder;
+        $a = new Builder::<int>(1);
+        $b = $a->fresh(2);
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        // Receiver itself specializes (sanity), and the `static` return
+        // resolves to that same concrete type rather than the keyword.
+        self::assertSame('App\\Builder<int>', $resolver->resolveVariable('/Use.xphp', 'a', PHP_INT_MAX));
+        self::assertSame('App\\Builder<int>', $resolver->resolveVariable('/Use.xphp', 'b', PHP_INT_MAX));
+    }
+
     public function testGenericFunctionCallSubstitutesReturnType(): void
     {
         // Phase 1.3: free-function generic `identity::<User>(new User())`.
