@@ -167,10 +167,19 @@ LSP methods: `textDocument/codeLens`, `codeLens/resolve`.
 
 "Show references" lens above every class / interface / trait / enum
 / function / method declaration. The resolve step fills in a lazy
-reference count; clicking the lens opens a chooser popup
-(`editor.action.showReferences`) -- natively in VS Code, dispatched
-client-side by the PhpStorm plugin so the popup anchors at the lens
-position rather than the caret.
+reference count; the lens carries a namespaced `xphp.showReferences`
+command (with the locations baked in) that each client handles
+client-side -- VS Code via a wrapper command that forwards to its
+built-in references peek, the PhpStorm plugin via a usage chooser
+anchored at the lens position rather than the caret.
+
+The command is advertised in `executeCommandProvider` by default --
+PhpStorm's LSP API only renders a CodeLens as clickable when its
+command is advertised. VS Code instead auto-registers a forwarding
+command for every advertised command (which would shadow its own
+client-side handler), so the VS Code extension opts out via
+`initializationOptions: {advertiseCodeLensCommand: false}` and the
+server then omits it.
 
 ---
 

@@ -31,11 +31,12 @@ use XPHP\Lsp\Resolver\ReferenceFinder;
  *
  * Emits a "Show references" lens above every class, interface, trait,
  * enum, function, and method declaration in the active document.
- * Each lens carries an `editor.action.showReferences` Command -- the
- * de-facto LSP client-side convention (VS Code / LSP4IJ / Helix all
- * recognize the name) -- with Location[] in the arguments.  Clicking
- * the lens opens the references popup via XphpShowReferencesCommandsSupport
- * (or the client's built-in handler for that command name).
+ * Each lens carries an `xphp.showReferences` Command (a namespaced,
+ * client-side command -- see COMMAND_NAME) with Location[] in the
+ * arguments.  Each client registers its own handler for that id and
+ * opens the references UI client-side: VS Code via a wrapper command
+ * that forwards to its built-in references peek, PhpStorm via
+ * XphpShowReferencesCommandsSupport.
  *
  * Two-phase emission (LSP 3.17 codeLens/resolve protocol):
  *
@@ -65,10 +66,17 @@ use XPHP\Lsp\Resolver\ReferenceFinder;
 final class XphpCodeLensHandler implements Handler, CanRegisterCapabilities
 {
     /**
-     * Client-side command name -- recognized by VS Code, PhpStorm
-     * LSP4IJ, Helix, and every other mainline LSP client.
+     * Client-side command name.  Namespaced (NOT the VS Code-internal
+     * `editor.action.showReferences`) so it is never advertised in
+     * `executeCommandProvider` and never collides with a client
+     * built-in: each client registers its own handler for this id
+     * (VS Code: a wrapper command that converts args and calls the
+     * built-in references peek; PhpStorm: XphpShowReferencesCommandsSupport).
+     * The lens carries `[uri, position, locations]` (locations baked in
+     * by `resolve()`), and clients open the references UI client-side
+     * without any `workspace/executeCommand` round-trip.
      */
-    public const COMMAND_NAME = 'editor.action.showReferences';
+    public const COMMAND_NAME = 'xphp.showReferences';
 
     /**
      * Placeholder title shown until the lens is resolved.  Users

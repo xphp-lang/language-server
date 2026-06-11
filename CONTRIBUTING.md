@@ -43,9 +43,12 @@ For LSP-client developers wiring this server into a non-bundled editor:
 - `inlayHintProvider`
 - `codeActionProvider` with `resolveProvider: true`
 - `codeLensProvider` with `resolveProvider: true`
+- `executeCommandProvider` advertising `xphp.showReferences` (the
+  "Show references" CodeLens command) -- advertised by default so
+  PhpStorm renders the lens as clickable; suppressed when the client
+  sends `initializationOptions: {advertiseCodeLensCommand: false}`
+  (VS Code does, to avoid its forwarder shadowing the client handler)
 - `callHierarchyProvider`, `typeHierarchyProvider`
-- `executeCommandProvider` advertising `editor.action.showReferences`
-  (no-op server-side; both clients dispatch it directly)
 - `semanticTokensProvider` (full file; standard LSP-spec token
   legend including `typeParameter`)
 - Pull-mode `diagnosticProvider`

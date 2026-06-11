@@ -186,37 +186,50 @@ final class LspDispatcherFactoryTest extends TestCase
         yield 'resourceOperations includes "rename"' => [$renameAndCreate, true];
     }
 
-    public function testCodeLensCommandIsDispatchableViaExecuteCommandFallback(): void
+    public function testCodeLensCommandIsAdvertisedByDefault(): void
     {
-        // CodeLens emits `editor.action.showReferences` with
-        // locations baked in; well-behaved clients (VS Code, LSP4IJ,
-        // Helix) dispatch the command client-side and open Find
-        // Usages directly -- no executeCommand request reaches the
-        // server.  Any client that doesn't recognize the
-        // convention falls back to `workspace/executeCommand` --
-        // phpactor's CommandDispatcher would throw `Command "..."
-        // not found` on an unregistered name and surface that as a
-        // JSON-RPC error toast.  The dispatcher registers a
-        // server-side no-op for the command name as a safety net so
-        // the fallback path is silent.
+        // PhpStorm's LSP API only renders a CodeLens as clickable when its
+        // command is advertised in executeCommandProvider, so the default
+        // (no initialization options) must advertise xphp.showReferences.
         $tester = $this->buildTester();
-        $tester->initialize();
+        $result = $tester->initialize();
 
-        $response = \Amp\Promise\wait(
-            $tester->workspace()->executeCommand(
-                \XPHP\Lsp\Handler\XphpCodeLensHandler::COMMAND_NAME,
-                ['file:///x.xphp', ['line' => 0, 'character' => 0], []],
-            ),
+        $commands = $result->capabilities->executeCommandProvider->commands ?? [];
+        self::assertContains(
+            \XPHP\Lsp\Handler\XphpCodeLensHandler::COMMAND_NAME,
+            $commands,
+            'the CodeLens command must be advertised by default',
         );
-
-        self::assertNull($response->error, 'no JSON-RPC error from executeCommand');
     }
 
-    private function buildTester(): LanguageServerTester
+    public function testCodeLensCommandIsSuppressedWhenClientOptsOut(): void
+    {
+        // VS Code (vscode-languageclient) auto-registers a forwarding command
+        // for every advertised command, which would shadow its own client-side
+        // handler. It opts out via initializationOptions.advertiseCodeLensCommand,
+        // and then the server must NOT advertise the command.
+        $tester = $this->buildTester(['advertiseCodeLensCommand' => false]);
+        $result = $tester->initialize();
+
+        $commands = $result->capabilities->executeCommandProvider->commands ?? [];
+        self::assertNotContains(
+            \XPHP\Lsp\Handler\XphpCodeLensHandler::COMMAND_NAME,
+            $commands,
+            'the CodeLens command must not be advertised when the client opts out',
+        );
+    }
+
+    /**
+     * @param array<string,mixed>|null $initializationOptions
+     */
+    private function buildTester(?array $initializationOptions = null): LanguageServerTester
     {
         return new LanguageServerTester(
             new LspDispatcherFactory(),
-            new InitializeParams(new ClientCapabilities()),
+            new InitializeParams(
+                new ClientCapabilities(),
+                initializationOptions: $initializationOptions,
+            ),
         );
     }
 }

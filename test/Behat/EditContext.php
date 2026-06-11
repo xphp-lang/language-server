@@ -389,7 +389,7 @@ final class EditContext implements Context
         $lens = $this->world->last();
         $this->world->assert($lens instanceof CodeLens && $lens->command !== null, 'expected a resolved code lens with a command');
         $this->world->assert(
-            $lens->command->command === 'editor.action.showReferences',
+            $lens->command->command === 'xphp.showReferences',
             sprintf('expected showReferences command, got "%s"', (string) $lens->command->command),
         );
         $args = $lens->command->arguments ?? [];

@@ -253,26 +253,33 @@ final class LspDispatcherFactory implements DispatcherFactory
             $genericResolver,
         );
 
+        // The CodeLens "Show references" command (`xphp.showReferences`) is
+        // handled CLIENT-side (VS Code wrapper command / PhpStorm
+        // XphpShowReferencesCommandsSupport), never round-tripped.  But the
+        // two clients disagree on whether it must be advertised in
+        // `executeCommandProvider`:
+        //   - PhpStorm's LSP API only renders a CodeLens as *clickable* when
+        //     its command is advertised here -- omit it and the lens shows as
+        //     dead text.
+        //   - VS Code (vscode-languageclient) auto-registers a forwarding
+        //     command for every advertised command, which SHADOWS the
+        //     extension's own `xphp.showReferences` handler and round-trips
+        //     the click to this server's no-op.
+        // So advertise by default (PhpStorm, Helix, ...) and let the VS Code
+        // extension opt out via the `advertiseCodeLensCommand: false`
+        // initialization option.  The no-op handler is a safety net for any
+        // client that does round-trip the (advertised) command.
+        $executeCommands = [];
+        if (self::clientWantsCodeLensCommandAdvertised($initializeParams)) {
+            $executeCommands[XphpCodeLensHandler::COMMAND_NAME] = new ClosureCommand(
+                static fn (...$args): \Amp\Promise => new \Amp\Success(null),
+            );
+        }
+
         $handlers = new Handlers(
             new XphpTextDocumentHandler($eventDispatcher),
             new ServiceHandler($serviceManager, $clientApi),
-            new CommandHandler(new CommandDispatcher([
-                // CodeLens emits `editor.action.showReferences` with
-                // locations baked in -- VS Code, PhpStorm LSP4IJ, and
-                // Helix all dispatch this name client-side and open
-                // the Find Usages panel without round-tripping.
-                // Register a server-side no-op as a safety net: any
-                // client that doesn't recognize the convention will
-                // fall back to `workspace/executeCommand`, and the
-                // CommandDispatcher would throw on an unknown
-                // command name -- phpactor's framework would surface
-                // that as a JSON-RPC error toast.  Returning null
-                // here makes the unhandled-by-client path silently
-                // do nothing instead.
-                XphpCodeLensHandler::COMMAND_NAME => new ClosureCommand(
-                    static fn (...$args): \Amp\Promise => new \Amp\Success(null),
-                ),
-            ])),
+            new CommandHandler(new CommandDispatcher($executeCommands)),
             new ExitHandler(),
             new XphpHoverHandler($workspace, $cache, $phpHoverResolver),
             new XphpDefinitionHandler(
@@ -410,5 +417,26 @@ final class LspDispatcherFactory implements DispatcherFactory
             return false;
         }
         return in_array('rename', $ops, true);
+    }
+
+    /**
+     * Whether to advertise the CodeLens "Show references" command in
+     * `executeCommandProvider`.  Defaults to true (PhpStorm needs it for
+     * clickable lenses; Helix and other clients are unaffected or treat it
+     * as a no-op).  A client that auto-registers forwarding commands for
+     * advertised commands -- vscode-languageclient does -- opts out by
+     * sending `initializationOptions: {advertiseCodeLensCommand: false}`,
+     * so its own client-side handler isn't shadowed.
+     */
+    private static function clientWantsCodeLensCommandAdvertised(InitializeParams $initializeParams): bool
+    {
+        $opts = $initializeParams->initializationOptions;
+        if (is_object($opts)) {
+            $opts = get_object_vars($opts);
+        }
+        if (!is_array($opts) || !array_key_exists('advertiseCodeLensCommand', $opts)) {
+            return true;
+        }
+        return $opts['advertiseCodeLensCommand'] !== false;
     }
 }
