@@ -66,7 +66,7 @@ final class XphpCodeLensHandlerTest extends TestCase
         // can still call codeLens/resolve to get the count + baked
         // locations up front.
         self::assertSame('Show references', $lenses[0]->command?->title);
-        self::assertSame('editor.action.showReferences', $lenses[0]->command?->command);
+        self::assertSame(XphpCodeLensHandler::COMMAND_NAME, $lenses[0]->command?->command);
         self::assertCount(2, $lenses[0]->command?->arguments);
         self::assertSame('/Foo.xphp', $lenses[0]->command?->arguments[0]);
         self::assertSame(['line' => 2, 'character' => 6], $lenses[0]->command?->arguments[1]);
@@ -160,7 +160,7 @@ final class XphpCodeLensHandlerTest extends TestCase
         // The resolve handler runs ReferenceFinder against the
         // position the lens emission stored in `data`, and returns
         // the lens with `command: {title: "N usage(s)", command:
-        // editor.action.showReferences, arguments: [uri, position,
+        // xphp.showReferences, arguments: [uri, position,
         // locations]}` populated.
         $workspace = new PhpactorWorkspace();
         $workspace->open(new TextDocumentItem('/Foo.xphp', 'xphp', 1, <<<'PHP'
@@ -187,7 +187,7 @@ final class XphpCodeLensHandlerTest extends TestCase
 
         $resolved = wait($handler->resolve($unresolved));
 
-        self::assertSame('editor.action.showReferences', $resolved->command?->command);
+        self::assertSame(XphpCodeLensHandler::COMMAND_NAME, $resolved->command?->command);
         self::assertSame('1 usage', $resolved->command?->title);
         $args = $resolved->command?->arguments;
         self::assertIsArray($args);
