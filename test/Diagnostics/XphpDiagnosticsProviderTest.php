@@ -252,9 +252,6 @@ final class XphpDiagnosticsProviderTest extends TestCase
         $root = sys_get_temp_dir() . '/xphp-diag-fs-skip-' . bin2hex(random_bytes(6));
         mkdir($root, 0o755, true);
         try {
-            $unwarmedPath = $root . '/Other.xphp';
-            $tagPath = $root . '/Tag.xphp';
-            file_put_contents($unwarmedPath, "<?php\nnamespace App;\nclass Other {}\n");
             $tagSource = <<<'PHP'
             <?php
             namespace App\Models;
@@ -264,28 +261,48 @@ final class XphpDiagnosticsProviderTest extends TestCase
                 public function __toString(): string { return $this->name; }
             }
             PHP;
-            file_put_contents($tagPath, $tagSource);
 
             $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
+
+            // The break-vs-continue regression only surfaces when a
+            // cache-MISSING path is iterated BEFORE the path carrying Tag.
+            // Filesystem iteration order is NOT guaranteed alphabetical
+            // across platforms (it is not on CI), so discover the order with
+            // a throwaway index, then write the dummy class into the
+            // first-iterated file and Tag into the second — independent of
+            // which filename the platform happens to sort first.
+            $pathA = $root . '/A.xphp';
+            $pathB = $root . '/B.xphp';
+            file_put_contents($pathA, "<?php\nnamespace App;\nclass PlaceholderA {}\n");
+            file_put_contents($pathB, "<?php\nnamespace App;\nclass PlaceholderB {}\n");
+
+            $probe = new FqnIndex(
+                new PhpactorWorkspace(),
+                new ParsedDocumentCache(new Analyzer($parser)),
+                $parser,
+                $root,
+            );
+            $order = $probe->indexedFilesystemPaths();
+            self::assertCount(2, $order, 'both files must be indexed');
+            [$firstPath, $secondPath] = $order;
+            // Rewriting keeps the same inode, so a fresh walk iterates in the
+            // same order (asserted below).
+            file_put_contents($firstPath, "<?php\nnamespace App;\nclass Other {}\n");
+            file_put_contents($secondPath, $tagSource);
+
             $cache = new ParsedDocumentCache(new Analyzer($parser));
             $workspace = new PhpactorWorkspace();
             $fqnIndex = new FqnIndex($workspace, $cache, $parser, $root);
 
             // Warm everything via the same warmer the prod path uses, so
             // both URIs land in the cache. Then surgically drop the cache
-            // entry for the FIRST-iterated URI (alphabetically the Other
-            // file, which sorts before Tag) — that's the one whose
+            // entry for the FIRST-iterated URI — that's the one whose
             // `peek()` must return null AND not break the loop.
             $warmer = new \XPHP\Lsp\Analyzer\ParsedDocumentCacheWarmer($fqnIndex, $cache, $workspace);
             $warmer->warmNow();
             $walked = $fqnIndex->indexedFilesystemPaths();
             self::assertCount(2, $walked, 'both files must be indexed');
-            // Sanity: tmpfs iteration is alphabetical on Linux (see the
-            // sibling ParsedDocumentCacheWarmerTest A_/B_ pattern). If a
-            // future filesystem changes that and Tag ends up first, this
-            // assertion would fail loudly rather than silently mask the
-            // break-mutant regression.
-            self::assertSame($unwarmedPath, $walked[0], 'Other.xphp must be iterated before Tag.xphp');
+            self::assertSame($firstPath, $walked[0], 'iteration order must be stable across content rewrites');
             $cache->forget('file://' . $walked[0]);
 
             // Box's template definition lives in an open buffer so it gets
@@ -316,8 +333,8 @@ final class XphpDiagnosticsProviderTest extends TestCase
             // skipped).
             self::assertSame([], $diagnostics);
         } finally {
-            @unlink($root . '/Other.xphp');
-            @unlink($root . '/Tag.xphp');
+            @unlink($root . '/A.xphp');
+            @unlink($root . '/B.xphp');
             @rmdir($root);
         }
     }
