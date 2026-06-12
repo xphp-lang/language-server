@@ -65,8 +65,14 @@ jobs:
         # non-zero status before reaching the read loop, failing the job.
         # `timeout` returning 124 (server stayed up the full window) is also
         # treated as a healthy boot.
+        #
+        # Capture the exit code with `|| status=$?`: GitHub runs steps under
+        # `bash -eo pipefail`, so a bare `timeout ...; status=$?` would abort
+        # the step the moment `timeout` exits 124 (errexit), never reaching
+        # the guard below. The `||` exempts it from errexit and records the code.
         run: |
-          timeout 10s php var/xphp-lsp.phar </dev/null; status=$?
+          status=0
+          timeout 10s php var/xphp-lsp.phar </dev/null || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
             echo "PHAR failed to boot (exit $status)"
             exit 1
