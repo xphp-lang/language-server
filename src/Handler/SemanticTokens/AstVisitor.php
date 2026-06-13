@@ -95,14 +95,21 @@ final class AstVisitor
         // half the response size at every parameter.
         $specs = [];
         $reclassifyVariableAt = [];
+        // File-wide set of every type-param name declared anywhere in the file
+        // (`name => true`), accumulated by the AST walk from ATTR_GENERIC_PARAMS /
+        // ATTR_METHOD_GENERIC_PARAMS.  The token pass consults it to tell a
+        // forwarded in-scope type variable (`Foo::create::<T>()` inside a
+        // generic body -- `typeParameter`) from a concrete named type argument
+        // (`Foo::create::<User>()` -- `class`).
+        $declaredTypeParamNames = [];
 
         if ($stmts !== []) {
             $traverser = new NodeTraverser();
-            $traverser->addVisitor($this->newAstWalker($specs, $reclassifyVariableAt));
+            $traverser->addVisitor($this->newAstWalker($specs, $reclassifyVariableAt, $declaredTypeParamNames));
             $traverser->traverse($stmts);
         }
 
-        $this->collectFromTokens($specs, $reclassifyVariableAt);
+        $this->collectFromTokens($specs, $reclassifyVariableAt, $declaredTypeParamNames);
 
         return $specs;
     }
@@ -119,9 +126,13 @@ final class AstVisitor
      *                                                       T_VARIABLE starts at that offset
      *                                                       we emit the alternative type
      *                                                       INSTEAD of `variable`.
+     * @param array<string, true>     $declaredTypeParamNames  set of type-param names declared
+     *                                                          anywhere in the file; used to
+     *                                                          paint a forwarded `T` inside a
+     *                                                          turbofish as `typeParameter`.
      * @param list<TokenSpec>         $out
      */
-    private function collectFromTokens(array &$out, array $reclassifyVariableAt = []): void
+    private function collectFromTokens(array &$out, array $reclassifyVariableAt = [], array $declaredTypeParamNames = []): void
     {
         // Non-strict tokenization (flags=0).  TOKEN_PARSE turns
         // PhpToken into a strict-mode tokenizer that throws ParseError
@@ -139,11 +150,19 @@ final class AstVisitor
         // identifier or backslash (FQN start).  This rejects
         // `$size < count($items)` (LHS is T_VARIABLE, not T_STRING)
         // and `Foo::BAR < 5` (RHS is a number, not uppercase ident).
-        // Inside a clause: T_STRING tokens emit as `typeParameter`,
-        // backslashes as part of FQNs (left unclassified -- the
-        // surrounding T_STRING segments paint).  Depth-counted so
-        // nested `Box<Lst<T>>` still classifies T.
-        $genericDepth = 0;
+        //
+        // `$clauseKindStack` is a stack of clause KINDS parallel to the
+        // clause depth (`count($clauseKindStack)`): `'decl'` for a
+        // declaration clause (`class Box<T>`, `fn<T>`) and `'call'` for a
+        // call-site turbofish (`Box::<int>`).  The kind decides how an
+        // in-clause identifier is classified: in a `'decl'` clause the
+        // names are formal type params (`typeParameter`); in a `'call'`
+        // clause they are concrete type arguments (`type` for builtins,
+        // `class` for named user types, `typeParameter` only for a
+        // forwarded in-scope type var).  Nested clauses inherit the
+        // parent kind so `Box::<Lst<T>>` keeps the inner `Lst<T>` as
+        // call-site args.
+        $clauseKindStack = [];
         $lastSignificantTokenId = null;
 
         $tokenCount = count($tokens);
@@ -164,8 +183,12 @@ final class AstVisitor
 
             // Open / close angle-clause state on single-char tokens.
             if (!$isNamedToken && $token->text === '<') {
-                if ($genericDepth > 0) {
-                    $genericDepth++;
+                $openedKind = null;
+                if ($clauseKindStack !== []) {
+                    // Nested clause: inherit the enclosing kind so
+                    // `Box::<Lst<T>>` keeps the inner `Lst<T>` as call-site
+                    // args.
+                    $openedKind = end($clauseKindStack);
                 } elseif ($lastSignificantTokenId === T_STRING
                     && self::peekIsUppercaseIdent($tokens, $i + 1)
                     && self::nameBeforeAngleIsDeclaration($tokens, $i)
@@ -177,14 +200,14 @@ final class AstVisitor
                     // bareword comparison whose left side ends in a name --
                     // `Foo::CONST < Bar`, `MY_CONST < Other` -- from being
                     // mistaken for a generic declaration.
-                    $genericDepth = 1;
+                    $openedKind = 'decl';
                 } elseif (($lastSignificantTokenId === T_FN || $lastSignificantTokenId === T_FUNCTION)
                     && self::peekIsUppercaseIdent($tokens, $i + 1)
                 ) {
                     // Anonymous generic closure / arrow declaration clause:
                     // `fn<T>(…)`, `function<T>(…)` -- the `<` follows the
                     // `fn` / `function` keyword (no name between).
-                    $genericDepth = 1;
+                    $openedKind = 'decl';
                 } elseif ($lastSignificantTokenId === T_DOUBLE_COLON) {
                     // Call-site turbofish: `Foo::<T>`, `static::<T>`,
                     // `$obj->m::<T>` -- the `<` follows the `::` of `::<`. A `::`
@@ -198,10 +221,25 @@ final class AstVisitor
                     // dropping every arg's token. Opening on the empty
                     // `Foo::<>` is harmless: the next `>` closes it immediately
                     // with nothing classified inside.
-                    $genericDepth = 1;
+                    $openedKind = 'call';
+                    // P2: the turbofish `::` is an operator delimiter. Paint it
+                    // here -- only when the `<` actually opens a clause -- so a
+                    // bare `Foo::BAR` (no following `<`) never colors its `::`.
+                    $colonIdx = self::previousSignificant($tokens, $i - 1);
+                    if ($colonIdx >= 0 && $tokens[$colonIdx]->id === T_DOUBLE_COLON) {
+                        $this->emit($out, $tokens[$colonIdx]->pos, strlen($tokens[$colonIdx]->text), 'operator');
+                    }
                 }
-            } elseif (!$isNamedToken && $token->text === '>' && $genericDepth > 0) {
-                $genericDepth--;
+                if ($openedKind !== null) {
+                    $clauseKindStack[] = $openedKind;
+                    // P2: the opening `<` delimiter. Only painted when a clause
+                    // was actually pushed, so a comparison `<` stays uncolored.
+                    $this->emit($out, $token->pos, 1, 'operator');
+                }
+            } elseif (!$isNamedToken && $token->text === '>' && $clauseKindStack !== []) {
+                array_pop($clauseKindStack);
+                // P2: the closing `>` delimiter.
+                $this->emit($out, $token->pos, 1, 'operator');
             }
 
             // Classify the token.
@@ -213,15 +251,37 @@ final class AstVisitor
                     // (single spec, half the response size).
                     $type = $reclassifyVariableAt[$token->pos];
                 }
-                if ($type === null && $genericDepth > 0 && self::isIdentInGenericClause($token->id)) {
-                    // Inside a generic clause an identifier is a type
-                    // name -- emit as `typeParameter` for the LSP-spec
-                    // standard classification.  Covers bare T_STRING
-                    // (`T`) and qualified-name tokens
-                    // (T_NAME_FULLY_QUALIFIED `\Stringable`,
-                    // T_NAME_QUALIFIED `App\Foo`, T_NAME_RELATIVE
-                    // `namespace\Foo`).
-                    $type = 'typeParameter';
+                if ($type === null && $clauseKindStack !== [] && self::isIdentInGenericClause($token->id)) {
+                    // Inside a generic clause an identifier is a type name.
+                    // How it's classified depends on the clause KIND:
+                    //
+                    //  - Declaration clause (`class Box<T>`, `fn<T>`): the
+                    //    names are formal type parameters -> `typeParameter`.
+                    //    Covers bare `T` and bound refs (`<T: \Stringable>`).
+                    //
+                    //  - Call-site turbofish (`Box::<int>`,
+                    //    `Util::identity::<Banana>`): the names are concrete
+                    //    type ARGUMENTS, not formal params. Per LSP semantics
+                    //    `typeParameter` denotes a formal variable, so a
+                    //    concrete arg must be tokenized as the kind it
+                    //    resolves to:
+                    //      * a builtin/scalar (`int`, `string`, `void`, ...)
+                    //        -> `type`;
+                    //      * a forwarded in-scope type variable (`T` passed
+                    //        along inside a generic body) -> `typeParameter`;
+                    //      * otherwise a named user type -> `class` (the plugin
+                    //        colors class/interface/enum identically, so a flat
+                    //        `class` is visually correct without resolving the
+                    //        exact kind on every keystroke).
+                    if (end($clauseKindStack) === 'decl') {
+                        $type = 'typeParameter';
+                    } elseif ($token->id === T_STRING && self::isReservedWordIdent($token->text)) {
+                        $type = 'type';
+                    } elseif ($token->id === T_STRING && isset($declaredTypeParamNames[$token->text])) {
+                        $type = 'typeParameter';
+                    } else {
+                        $type = 'class';
+                    }
                 }
                 if ($type === null && $token->id === T_STRING && self::isReservedWordIdent($token->text)) {
                     // PHP tokenizes `null`, `true`, `false`, `void`,
@@ -388,10 +448,15 @@ final class AstVisitor
      *                                                              alternative type
      *                                                              for the T_VARIABLE
      *                                                              that starts there.
+     * @param array<string, true>          &$declaredTypeParamNames  set of every type-param
+     *                                                                name declared in the file;
+     *                                                                lets the token pass paint a
+     *                                                                forwarded `T` in a turbofish
+     *                                                                as `typeParameter`.
      */
-    private function newAstWalker(array &$out, array &$reclassifyVariableAt): NodeVisitorAbstract
+    private function newAstWalker(array &$out, array &$reclassifyVariableAt, array &$declaredTypeParamNames): NodeVisitorAbstract
     {
-        $visitor = new class($out, $reclassifyVariableAt, $this) extends NodeVisitorAbstract {
+        $visitor = new class($out, $reclassifyVariableAt, $declaredTypeParamNames, $this) extends NodeVisitorAbstract {
             /**
              * Stack of in-scope type-param name sets.  Each frame is the
              * set of names declared on an enclosing ClassLike via
@@ -403,12 +468,14 @@ final class AstVisitor
             private array $typeParamStack = [];
 
             /**
-             * @param list<TokenSpec>     $out
-             * @param array<int, string>  $reclassifyVariableAt
+             * @param list<TokenSpec>      $out
+             * @param array<int, string>   $reclassifyVariableAt
+             * @param array<string, true>  $declaredTypeParamNames
              */
             public function __construct(
                 private array &$out,
                 private array &$reclassifyVariableAt,
+                private array &$declaredTypeParamNames,
                 private AstVisitor $emitter,
             ) {
             }
@@ -422,6 +489,7 @@ final class AstVisitor
                         foreach ($params as $param) {
                             if ($param instanceof \XPHP\Transpiler\Monomorphize\TypeParam) {
                                 $frame[$param->name] = true;
+                                $this->declaredTypeParamNames[$param->name] = true;
                             }
                         }
                         $this->typeParamStack[] = $frame;
@@ -451,6 +519,7 @@ final class AstVisitor
                         foreach ($params as $param) {
                             if ($param instanceof \XPHP\Transpiler\Monomorphize\TypeParam) {
                                 $frame[$param->name] = true;
+                                $this->declaredTypeParamNames[$param->name] = true;
                             }
                         }
                     }

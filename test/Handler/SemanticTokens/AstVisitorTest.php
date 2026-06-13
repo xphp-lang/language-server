@@ -288,57 +288,60 @@ final class AstVisitorTest extends TestCase
 
     public function testTypeArgClausePaintsInsideBoxOfPlastic(): void
     {
-        // Form 6: new Box::<Plastic>() -- `Plastic` inside the turbofish is
-        // typeParameter. The clause opens on `<` preceded by `::`.
+        // Form 6: new Box::<Plastic>() -- `Plastic` inside the turbofish is a
+        // concrete type ARGUMENT, not a formal param: it's a named user type,
+        // so it paints as `class`. The clause opens on `<` preceded by `::`.
         $source = "<?php\n\$b = new Box::<Plastic>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'class');
     }
 
     public function testNestedTypeArgClause(): void
     {
         // Nested: Box::<Lst<T>> -- the outer clause is a turbofish; the inner
-        // `Lst<T>` is a bare nested type-arg. Both `Lst` and `T` are
-        // typeParameter.
+        // `Lst<T>` is a nested call-site type-arg (inherits the call kind).
+        // Both `Lst` and `T` are concrete type args here (no enclosing generic
+        // declaration puts `T` in scope), so both paint as `class`.
         $source = "<?php\n\$b = new Box::<Lst<T>>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'Lst', 'typeParameter');
-        $this->assertTokenSubstring($specs, $source, 'T', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'Lst', 'class');
+        $this->assertTokenSubstring($specs, $source, 'T', 'class');
     }
 
     public function testStaticCallTurbofishPaintsTypeArg(): void
     {
         // Util::identity::<int>(42) -- the call-site turbofish opens on the
-        // `<` after `::`; the lowercase scalar `int` inside is typeParameter
-        // (the `::` makes the clause unambiguous against `<` comparison).
+        // `<` after `::`; the lowercase scalar `int` inside is a concrete
+        // builtin type arg, so it paints as `type` (not `typeParameter`).
         $source = "<?php\nUtil::identity::<int>(\$x);";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'int', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'int', 'type');
     }
 
     public function testStaticReceiverTurbofishPaintsTypeArg(): void
     {
-        // static::<T>() -- the receiver before `::` is the T_STATIC keyword;
-        // the clause still opens on the `<` after `::`.
+        // static::<Plastic>() -- the receiver before `::` is the T_STATIC
+        // keyword; the clause still opens on the `<` after `::`. `Plastic` is
+        // a named concrete type arg -> `class`.
         $source = "<?php\nstatic::<Plastic>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'class');
     }
 
     public function testSelfTurbofishPaintsTypeArg(): void
     {
         // `self::<Plastic>()` -- the pseudo-type turbofish opens a clause after
-        // the `::`; `Plastic` inside is a typeParameter.
+        // the `::`; `Plastic` inside is a named concrete type arg -> `class`.
         $source = "<?php\nnew self::<Plastic>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'class');
     }
 
     public function testParentTurbofishPaintsTypeArg(): void
     {
         $source = "<?php\nparent::method::<Plastic>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'class');
     }
 
     public function testStaticReceiverIsClassifiedAsKeyword(): void
@@ -347,7 +350,7 @@ final class AstVisitorTest extends TestCase
         $source = "<?php\nstatic::<Plastic>();";
         $specs = $this->collect($source);
         $this->assertTokenSubstring($specs, $source, 'static', 'keyword');
-        $this->assertTokenSubstring($specs, $source, 'Plastic', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'Plastic', 'class');
     }
 
     public function testArrowClosureDeclarationClausePaintsTypeParam(): void
@@ -418,21 +421,22 @@ final class AstVisitorTest extends TestCase
         // `Box::<int>()` -- the `::` anchor makes the clause unambiguous, so a
         // lowercase scalar first arg MUST open it and be painted. (The
         // uppercase-ident guard belongs to the bare-`<` declaration branch, not
-        // the turbofish branch, where it would drop the whole clause.)
+        // the turbofish branch, where it would drop the whole clause.) `int` is
+        // a builtin scalar arg -> `type`.
         $source = "<?php\nnew Box::<int>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'int', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'int', 'type');
     }
 
     public function testTurbofishMultipleArgsLowercaseFirstHighlightsAll(): void
     {
         // `Map::<int, User>()` -- a lowercase first arg must not suppress the
-        // whole clause: both the scalar `int` and the class `User` in the later
-        // slot are type arguments and must be painted.
+        // whole clause: both args are painted, each by its resolved kind --
+        // the scalar `int` -> `type`, the named user type `User` -> `class`.
         $source = "<?php\nnew Map::<int, User>();";
         $specs = $this->collect($source);
-        $this->assertTokenSubstring($specs, $source, 'int', 'typeParameter');
-        $this->assertTokenSubstring($specs, $source, 'User', 'typeParameter');
+        $this->assertTokenSubstring($specs, $source, 'int', 'type');
+        $this->assertTokenSubstring($specs, $source, 'User', 'class');
     }
 
     public function testTurbofishClauseClosesSoTrailingNameIsNotTypeParam(): void
@@ -447,6 +451,87 @@ final class AstVisitorTest extends TestCase
             fn (TokenSpec $s) => self::substring($source, $s) === 'Other' && $s->type === 'typeParameter',
         );
         self::assertEmpty($otherSpecs, 'identifier after a closed turbofish must not be a type parameter');
+    }
+
+    public function testTurbofishForwardedTypeParamPaintsAsTypeParameter(): void
+    {
+        // A generic body forwarding its own `T` through a turbofish keeps that
+        // `T` as `typeParameter` -- it's a formal type variable being passed
+        // along, not a concrete arg. The file-wide declared-type-param set
+        // (built from the enclosing class's ATTR_GENERIC_PARAMS) drives this.
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T> {
+            public function make(): mixed { return Inner::create::<T>(); }
+        }
+        XPHP;
+        $specs = $this->collect($source);
+
+        // Assert the `T` inside `::<T>` SPECIFICALLY (not the decl-clause `T`,
+        // which the token pass classifies independently).
+        $forwardedTOffset = strpos($source, 'create::<') + strlen('create::<');
+        $forwarded = array_filter(
+            $specs,
+            fn (TokenSpec $s) => self::substring($source, $s) === 'T'
+                && $s->type === 'typeParameter'
+                && self::specByteOffset($source, $s) === $forwardedTOffset,
+        );
+        self::assertCount(1, $forwarded, 'forwarded `T` in a turbofish must be a type parameter');
+    }
+
+    public function testTurbofishConcreteArgNotMatchingTypeParamIsClass(): void
+    {
+        // Same shape as the forwarded-T test, but the arg `User` is not a
+        // declared type param -> it's a concrete named type arg -> `class`.
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T> {
+            public function make(): mixed { return Inner::create::<User>(); }
+        }
+        XPHP;
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'User', 'class');
+    }
+
+    public function testTurbofishBuiltinArgPaintsAsType(): void
+    {
+        // `Box::<string>()` -- `string` is a builtin scalar arg -> `type`.
+        $source = "<?php\nnew Box::<string>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, 'string', 'type');
+    }
+
+    public function testTurbofishPunctuationEmitsOperatorTokens(): void
+    {
+        // P2: the turbofish delimiters `::`, `<`, `>` paint as `operator` so
+        // they don't render uncolored.
+        $source = "<?php\nnew Box::<int>();";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, '::', 'operator');
+        $this->assertTokenSubstring($specs, $source, '<', 'operator');
+        $this->assertTokenSubstring($specs, $source, '>', 'operator');
+    }
+
+    public function testDeclarationClauseAnglesEmitOperatorTokens(): void
+    {
+        // P2: the `<` / `>` of a declaration clause also paint as `operator`.
+        $source = "<?php\nclass Box<T> {}";
+        $specs = $this->collect($source);
+        $this->assertTokenSubstring($specs, $source, '<', 'operator');
+        $this->assertTokenSubstring($specs, $source, '>', 'operator');
+    }
+
+    public function testBareDoubleColonEmitsNoOperatorToken(): void
+    {
+        // A plain `Foo::BAR` member access (no following `<`) is not a turbofish,
+        // so its `::` must NOT be painted as an operator -- the operator
+        // emission is scoped to generic clauses only.
+        $source = "<?php\n\$x = Foo::BAR;";
+        $specs = $this->collect($source);
+        $operatorSpecs = array_filter($specs, fn (TokenSpec $s) => $s->type === 'operator');
+        self::assertEmpty($operatorSpecs, 'bare `::` must not emit an operator token');
     }
 
     public function testMultipleTypeArgsSeparatedByComma(): void
