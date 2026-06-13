@@ -99,6 +99,54 @@ final class AstVisitorTest extends TestCase
         $this->assertTokenSubstring($specs, $source, '/** doc */', 'comment');
     }
 
+    public function testMultilineBlockCommentEmitsTokenOnEachLine(): void
+    {
+        // LSP spec: tokens cannot span line boundaries. A three-line docblock
+        // must produce one comment token per physical line.
+        $source = "<?php\n/**\n *\n */";
+        $specs = $this->collect($source);
+
+        $commentLines = array_values(array_unique(array_map(
+            fn (TokenSpec $s) => $s->line,
+            array_filter($specs, fn (TokenSpec $s) => $s->type === 'comment'),
+        )));
+        sort($commentLines);
+        self::assertSame(
+            [1, 2, 3],
+            $commentLines,
+            'each physical line of the docblock must carry a comment token',
+        );
+    }
+
+    public function testNoTokenSpansMultipleLines(): void
+    {
+        // General LSP invariant: no emitted token may have a length that
+        // carries past the end of its own line.
+        $source = "<?php\n/**\n * @param int \$x\n * @return void\n */\nfunction f(int \$x): void {}";
+        $specs = $this->collect($source);
+        $lines = explode("\n", $source);
+
+        foreach ($specs as $spec) {
+            $lineContent = $lines[$spec->line] ?? '';
+            // UTF-16 length of the content from startChar to end of line.
+            $lineFromStart = substr($lineContent, $spec->startChar);
+            $maxLen = PositionMap::lengthInUtf16($lineFromStart);
+            self::assertLessThanOrEqual(
+                $maxLen,
+                $spec->length,
+                sprintf(
+                    'token %s at L%d C%d has length %d which extends past line end (max %d): %s',
+                    $spec->type,
+                    $spec->line,
+                    $spec->startChar,
+                    $spec->length,
+                    $maxLen,
+                    json_encode($lineContent),
+                ),
+            );
+        }
+    }
+
     // --- Pass 2: AST -------------------------------------------------------
 
     public function testClassNameIsClassified(): void

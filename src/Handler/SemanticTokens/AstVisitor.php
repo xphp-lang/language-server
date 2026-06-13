@@ -239,7 +239,7 @@ final class AstVisitor
                     $type = 'keyword';
                 }
                 if ($type !== null) {
-                    $this->emit($out, $token->pos, strlen($token->text), $type);
+                    $this->emitSplitting($out, $token->pos, $token->text, $type);
                 }
             }
 
@@ -567,6 +567,31 @@ final class AstVisitor
      *
      * @param list<TokenSpec> $out
      */
+    /**
+     * Emit one token per physical line covered by $text, starting at
+     * $originalOffset.  Required by the LSP spec: "Tokens cannot … span
+     * multiple lines."  Single-line tokens take the fast path.
+     *
+     * @param list<TokenSpec> $out
+     */
+    private function emitSplitting(array &$out, int $originalOffset, string $text, string $type, array $modifiers = []): void
+    {
+        if (!str_contains($text, "\n")) {
+            $this->emit($out, $originalOffset, strlen($text), $type, $modifiers);
+            return;
+        }
+
+        $offset = $originalOffset;
+        foreach (explode("\n", $text) as $segment) {
+            // Strip a trailing \r so \r\n line endings don't inflate the length.
+            $visibleLen = strlen(rtrim($segment, "\r"));
+            if ($visibleLen > 0) {
+                $this->emit($out, $offset, $visibleLen, $type, $modifiers);
+            }
+            $offset += strlen($segment) + 1; // +1 for the consumed \n
+        }
+    }
+
     public function emit(array &$out, int $originalOffset, int $length, string $type, array $modifiers = []): void
     {
         if ($length <= 0) {
