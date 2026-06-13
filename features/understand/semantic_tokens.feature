@@ -39,6 +39,20 @@ Feature: Semantic tokens
     Then a "typeParameter" token covers "int" in "/turbofish.xphp"
     And a "typeParameter" token covers "User" in "/turbofish.xphp"
 
+  Scenario: Multiline block comment highlights on every physical line
+    Given the file at "/doc.xphp" contains the following lines:
+      """
+      <?php
+      /**
+       *
+       */
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/semanticTokens/full" for "/doc.xphp"
+    Then a "comment" token covers "/**" in "/doc.xphp"
+    And a "comment" token covers " *" in "/doc.xphp"
+    And a "comment" token covers " */" in "/doc.xphp"
+
   Scenario: Highlight an interpolated variable inside a double-quoted string
     Given the file at "/Str.xphp" contains the following lines:
       """
