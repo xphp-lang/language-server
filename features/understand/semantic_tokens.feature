@@ -27,7 +27,7 @@ Feature: Semantic tokens
     When I request "textDocument/semanticTokens/full" for "/closure.xphp"
     Then a "typeParameter" token covers "T" in "/closure.xphp"
 
-  Scenario: Highlight every type argument of a turbofish call, lowercase scalar included
+  Scenario: Highlight every type argument of a turbofish call by its resolved kind
     Given the file at "/turbofish.xphp" contains the following lines:
       """
       <?php
@@ -36,8 +36,24 @@ Feature: Semantic tokens
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/semanticTokens/full" for "/turbofish.xphp"
-    Then a "typeParameter" token covers "int" in "/turbofish.xphp"
-    And a "typeParameter" token covers "User" in "/turbofish.xphp"
+    Then a "type" token covers "int" in "/turbofish.xphp"
+    And a "class" token covers "User" in "/turbofish.xphp"
+    And a "operator" token covers "::" in "/turbofish.xphp"
+    And a "operator" token covers "<" in "/turbofish.xphp"
+    And a "operator" token covers ">" in "/turbofish.xphp"
+
+  Scenario: Forward a type parameter through a turbofish inside a generic body
+    Given the file at "/forward.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<T> {
+          public function make(): mixed { return Inner::create::<T>(); }
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/semanticTokens/full" for "/forward.xphp"
+    Then a "typeParameter" token covers "T" in "/forward.xphp"
 
   Scenario: Multiline block comment highlights on every physical line
     Given the file at "/doc.xphp" contains the following lines:
