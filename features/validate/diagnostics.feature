@@ -143,3 +143,59 @@ Feature: Diagnostics
     When I analyze "/Bounds.xphp" for diagnostics
     Then a "xphp.ctor-arg-mismatch" diagnostic is reported
     And the "xphp.ctor-arg-mismatch" diagnostic underlines "new User()"
+
+  Scenario: Warn about a null dereference on a chained nullable receiver
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class User { public string $name = ''; }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $users = new Collection::<User>();
+      $name = $users->first()->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Use.xphp" for diagnostics
+    Then a "xphp.null-deref" diagnostic is reported saying "possibly-null"
+    And the "xphp.null-deref" diagnostic underlines "name"
+    And every reported diagnostic range is within document bounds
+
+  Scenario: A nullsafe access on the same nullable chain is not flagged
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      final class User { public string $name = ''; }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      $users = new Collection::<User>();
+      $name = $users->first()?->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Use.xphp" for diagnostics
+    Then no diagnostics are reported

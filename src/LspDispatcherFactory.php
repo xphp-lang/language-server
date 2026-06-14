@@ -185,6 +185,9 @@ final class LspDispatcherFactory implements DispatcherFactory
             // Push path: lets a workspace pass re-publish diagnostics for the
             // dependents of the edited file (cross-file broadcast).
             $clientApi,
+            // Type-inference engine for the conservative null-dereference
+            // diagnostic (xphp.null-deref) on chained nullable receivers.
+            $genericResolver,
         );
 
         $diagnosticsEngine = new DiagnosticsEngine(

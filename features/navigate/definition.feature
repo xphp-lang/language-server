@@ -96,3 +96,39 @@ Feature: Go to definition
     When I request "textDocument/definition" on "Plastic" at line 7 of "SelfUse.xphp"
     Then the response points to "Models/Plastic.xphp"
     And the target range covers the "Plastic" class name
+
+  Scenario: Jump through a nullsafe method chain to the final method declaration
+    # Self-contained fixtures (NOT Background overrides): a warmed FQN index goes
+    # stale when a Background file is redefined, so the chain's terminal hop would
+    # miss. Fresh files keep the index consistent.
+    Given the file at "Chain/Bag.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Chain;
+      class Bag<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "Chain/Widget.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Chain;
+      final class Widget
+      {
+          public function spin(): ?Widget { return null; }
+      }
+      """
+    And the file at "ChainUse.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      use App\Chain\Bag;
+      use App\Chain\Widget;
+      $bag = new Bag::<Widget>();
+      $w = $bag->first()?->spin();
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/definition" on "spin" at line 5 of "ChainUse.xphp"
+    Then the response points to "Chain/Widget.xphp"
+    And the target range covers the "spin" method declaration

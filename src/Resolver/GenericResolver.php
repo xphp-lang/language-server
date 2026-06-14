@@ -973,7 +973,7 @@ final class GenericResolver
      * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}> $scopes
      * @return array<string, VarBinding|ResolvedType>
      */
-    private static function bindingsAt(array $scopes, int $offset): array
+    public static function bindingsAt(array $scopes, int $offset): array
     {
         $best = null;
         foreach ($scopes as $scope) {
@@ -1379,6 +1379,115 @@ final class GenericResolver
             return self::resolveFuncCall($expr, $fqnIndex);
         }
         return null;
+    }
+
+    /**
+     * Conservative null-dereference detection over a whole document.
+     *
+     * Flags a plain-`->` property/method access whose IMMEDIATE receiver is a
+     * statically nullable member-access sub-expression -- a chain like
+     * `$users->first()->name` where `first()` returns `?User`. In that shape no
+     * inline null-guard is syntactically possible and there is no bare variable
+     * to flow-narrow, so the inferred nullability is a reliable signal.
+     *
+     * Deliberately narrow to keep false positives near zero:
+     *   - only plain `->` accesses (a `?->` access is already null-safe);
+     *   - the receiver must itself be a `->`/`?->` method-call or property-fetch
+     *     (bare-variable receivers like `$x->y` are DEFERRED to a future
+     *     flow-narrowing pass -- guards such as `if ($x !== null)` aren't modelled);
+     *   - when `inferType` can't model the receiver it returns null and nothing
+     *     fires (unresolvable cross-file types degrade safely to no diagnostic).
+     *
+     * Returns sites in STRIPPED-source byte offsets; the diagnostics layer maps
+     * them back to the original buffer.
+     *
+     * @return list<NullDerefSite>
+     */
+    public function findNullDerefSites(string $uri, int $version, string $text): array
+    {
+        $result = $this->documents->getOrParse($uri, $version, $text);
+        $ast = $result->ast;
+        if ($ast === null) {
+            return [];
+        }
+        $scopes = $this->scopesFor($uri, $version, $text);
+        [$useMap, $namespace] = self::useMapAndNamespaceFor($ast);
+
+        $sites = [];
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor(new class(
+            $sites,
+            $scopes,
+            $this->classes,
+            $this->fqnIndex,
+            $useMap,
+            $namespace,
+        ) extends NodeVisitorAbstract {
+            /**
+             * @param list<NullDerefSite>                                                                       $sites
+             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>       $scopes
+             * @param array<string, string>                                                                     $useMap
+             */
+            public function __construct(
+                private array &$sites,
+                private array $scopes,
+                private ClassLikeLookup $classes,
+                private FqnIndex $fqnIndex,
+                private array $useMap,
+                private string $namespace,
+            ) {
+            }
+
+            public function enterNode(Node $node): null
+            {
+                // Only plain `->` accesses; `?->` is already null-safe.
+                if (!$node instanceof PropertyFetch && !$node instanceof MethodCall) {
+                    return null;
+                }
+                if (!$node->name instanceof Identifier) {
+                    return null;
+                }
+                $receiver = $node->var;
+                // Restrict to member-access receivers: a chained sub-expression
+                // that can't carry an inline guard and isn't a narrowable bare
+                // variable. (`$x->y` on a nullable `$x` is deferred.)
+                if (
+                    !$receiver instanceof MethodCall
+                    && !$receiver instanceof NullsafeMethodCall
+                    && !$receiver instanceof PropertyFetch
+                    && !$receiver instanceof NullsafePropertyFetch
+                ) {
+                    return null;
+                }
+                $bindings = GenericResolver::bindingsAt($this->scopes, $receiver->getStartFilePos());
+                $receiverType = GenericResolver::inferType(
+                    $receiver,
+                    $bindings,
+                    $this->classes,
+                    $this->fqnIndex,
+                    $this->useMap,
+                    $this->namespace,
+                );
+                if ($receiverType === null || !$receiverType->nullable) {
+                    return null;
+                }
+                $start = $node->name->getStartFilePos();
+                $end = $node->name->getEndFilePos();
+                if ($start < 0 || $end < $start) {
+                    return null;
+                }
+                $this->sites[] = new NullDerefSite(
+                    $start,
+                    $end,
+                    $node->name->toString(),
+                    $receiverType->render(),
+                );
+                return null;
+            }
+        });
+        $traverser->traverse($ast);
+
+        return $sites;
     }
 
     /**

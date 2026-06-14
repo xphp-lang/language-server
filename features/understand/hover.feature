@@ -274,3 +274,41 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "picked" at line 4 of "/Use.xphp"
     Then the hover contents contain "?string $picked"
+
+  Scenario: A chain through a property typed via a cross-namespace use import resolves
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/Profile.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Other;
+      class Profile { public string $bio = ''; }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      use App\Other\Profile;
+      class User
+      {
+          public ?Profile $profile = null;
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $profileBio = $users->first()?->profile?->bio;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "profileBio" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $profileBio"
