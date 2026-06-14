@@ -171,6 +171,12 @@ final class PhpHoverResolver
         $propertyReceiver = $this->genericResolver->resolvePropertyReceiverClassAt($uri, $offset)
             ?? self::containerOrNull($context)
             ?? '';
+        // Substituted concrete type of the property at the cursor, e.g.
+        // hovering `$pair->first` on a `Pair<Plastic, User>` receiver yields
+        // `Pair<Plastic, User>` instead of the declared type-param `A`. Null
+        // when the receiver isn't a tracked generic instantiation -- the
+        // renderer falls back to the declared (prettified) type.
+        $propertyType = $this->genericResolver->resolvePropertyTypeAt($uri, $offset);
         $markdown = match ($symbol->symbolType()) {
             Symbol::CLASS_    => $this->fanOutRender(
                                     self::preferType($context, $symbol->name()),
@@ -195,6 +201,7 @@ final class PhpHoverResolver
                                     fn (string $fqn): ?string => $this->renderProperty(
                                         $fqn,
                                         $symbol->name(),
+                                        $propertyType,
                                     ),
                                 ),
             Symbol::CONSTANT,
@@ -347,7 +354,7 @@ final class PhpHoverResolver
         return self::format($signature, $docblock);
     }
 
-    private function renderProperty(?string $classFqn, string $propertyName): ?string
+    private function renderProperty(?string $classFqn, string $propertyName, ?string $substitutedType = null): ?string
     {
         if ($classFqn === null) {
             return null;
@@ -364,7 +371,13 @@ final class PhpHoverResolver
         }
         $visibility = (string) $property->visibility();
         $static = $property->isStatic() ? 'static ' : '';
-        $type = $this->genericParams->prettify((string) $property->inferredType());
+        // When the cursor is on a property access through a tracked generic
+        // receiver (`$pair->first` with `$pair: Pair<Plastic, User>`),
+        // GenericResolver has already substituted the type-params, so the
+        // declared `A` renders as the concrete `Pair<Plastic, User>`.  Fall
+        // back to prettify(inferredType) when there's no substitution (plain
+        // property, untracked receiver, union/intersection type).
+        $type = $substitutedType ?? $this->genericParams->prettify((string) $property->inferredType());
         $signature = sprintf(
             "// %s\n%s %s%s\$%s",
             $classFqn,

@@ -114,6 +114,74 @@ final class PhpHoverResolverTest extends TestCase
         );
     }
 
+    public function testPropertyHoverSubstitutesTypeParamThroughDirectReceiver(): void
+    {
+        // Hovering a property whose declared type is a type-param
+        // (`public A $first`) on a tracked generic receiver shows the
+        // SUBSTITUTED concrete type, not the raw `A`. For
+        // `$pair: Pair<Plastic, User>`, `$pair->first` is `Plastic`.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Plastic.xphp', "<?php\nnamespace App;\nclass Plastic {}\n");
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App;\nclass User {}\n");
+        $this->open($workspace, '/Pair.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Pair<A, B> {
+            public function __construct(
+                public A $first,
+                public B $second,
+            ) {}
+            public function swap(): Pair<B, A> {
+                return new Pair::<B, A>($this->second, $this->first);
+            }
+        }
+        XPHP);
+        $useSource = "<?php\nuse App\\Pair;\nuse App\\Plastic;\nuse App\\User;\n"
+            . "\$pair = new Pair::<Plastic, User>(new Plastic(), new User());\necho \$pair->first;\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '->first', strlen('->'));
+        $markdown = $this->markdown($hover);
+
+        self::assertStringContainsString('public App\\Plastic $first', $markdown);
+        self::assertStringNotContainsString('public A $first', $markdown);
+    }
+
+    public function testPropertyHoverSubstitutesTypeParamThroughChainedMethodCall(): void
+    {
+        // Headline: `$nested->swap()->first` where
+        // `$nested: Pair<Map<string,int>, Pair<Plastic,User>>`. swap() returns
+        // `Pair<B, A>`, so the result's `A` (-> `$first`) is `Pair<Plastic, User>`.
+        // Previously the member hover showed the raw `public A $first`.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Plastic.xphp', "<?php\nnamespace App;\nclass Plastic {}\n");
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App;\nclass User {}\n");
+        $this->open($workspace, '/Map.xphp', "<?php\nnamespace App;\nclass Map<K, V> {}\n");
+        $this->open($workspace, '/Pair.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Pair<A, B> {
+            public function __construct(
+                public A $first,
+                public B $second,
+            ) {}
+            public function swap(): Pair<B, A> {
+                return new Pair::<B, A>($this->second, $this->first);
+            }
+        }
+        XPHP);
+        $useSource = "<?php\nuse App\\Map;\nuse App\\Pair;\nuse App\\Plastic;\nuse App\\User;\n"
+            . "\$nested = new Pair::<Map<string, int>, Pair<Plastic, User>>(new Map(), new Pair::<Plastic, User>(new Plastic(), new User()));\n"
+            . "echo \$nested->swap()->first;\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '->first', strlen('->'));
+        $markdown = $this->markdown($hover);
+
+        self::assertStringContainsString('Pair<App\\Plastic, App\\User> $first', $markdown);
+        self::assertStringNotContainsString('public A $first', $markdown);
+    }
+
     public function testHoversStaticPropertyWithStaticModifier(): void
     {
         // Pins the `$static = $property->isStatic() ? 'static ' : ''`
