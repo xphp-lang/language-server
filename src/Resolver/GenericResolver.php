@@ -1361,6 +1361,14 @@ final class GenericResolver
         if ($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall) {
             return self::resolveMethodCall($expr, $bindings, $classes, $fqnIndex, $useMap, $currentNamespace);
         }
+        if ($expr instanceof PropertyFetch || $expr instanceof NullsafePropertyFetch) {
+            // A property-fetch receiver (`$a?->b?->c`): delegate to
+            // resolvePropertyFetch, which recurses into its own receiver via
+            // inferType. This terminates at a Variable / New_ / *Call leaf
+            // (each hop strips one AST node), so deep property chains resolve
+            // and per-hop nullsafe nullability propagates.
+            return self::resolvePropertyFetch($expr, $bindings, $classes, $fqnIndex, $useMap, $currentNamespace);
+        }
         if ($expr instanceof StaticCall) {
             return self::resolveStaticCall($expr, $classes, $useMap, $currentNamespace);
         }
@@ -1513,12 +1521,49 @@ final class GenericResolver
             return null;
         }
         $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        // A property typed as a bare class name (`?User`) resolves to an
+        // UNqualified TypeRef (the resolver runs no NameResolver). That renders
+        // fine for a terminal hover, but a chained access
+        // (`$x?->bestFriend?->name`) needs the intermediate's class FQN so the
+        // next hop can look the class up. Qualify it against the declaring
+        // class's namespace.
+        $substituted = self::qualifyAgainstNamespace($substituted, $receiverType->ref->name, $classes);
         // A nullsafe access (`$x?->prop`) short-circuits to null when the
         // receiver is null, so the result is `<propType>|null` regardless of
         // the property's own declared nullability. A regular `->` does NOT
         // widen (a null receiver there is a runtime error, not a type).
         $resultNullable = $nullable || $fetch instanceof NullsafePropertyFetch;
         return new ResolvedType($substituted, $resultNullable);
+    }
+
+    /**
+     * A bare (non-scalar, non-type-param) class name in a member type --
+     * `?User` -- comes back unqualified because the resolver runs no
+     * NameResolver. Qualify it against the DECLARING class's namespace,
+     * accepting the candidate ONLY when the lookup confirms it exists. An
+     * unconfirmable name (e.g. a cross-namespace `use` import we can't see
+     * here) is left bare, so a chain degrades to null rather than fabricating
+     * a wrong FQN.
+     */
+    private static function qualifyAgainstNamespace(TypeRef $ref, string $declaringFqn, ClassLikeLookup $classes): TypeRef
+    {
+        if ($ref->isScalar || $ref->isTypeParam) {
+            return $ref;
+        }
+        $name = $ref->name;
+        // Already namespaced / fully-qualified, or resolvable as-is.
+        if ($name === '' || str_contains($name, '\\') || $classes->find($name) !== null) {
+            return $ref;
+        }
+        $pos = strrpos($declaringFqn, '\\');
+        if ($pos === false) {
+            return $ref; // declaring class lives in the global namespace
+        }
+        $candidate = substr($declaringFqn, 0, $pos) . '\\' . $name;
+        if ($classes->find($candidate) === null) {
+            return $ref; // can't confirm -- leave bare (safe degradation)
+        }
+        return new TypeRef($candidate, $ref->args, $ref->isScalar, $ref->isTypeParam);
     }
 
     /**
