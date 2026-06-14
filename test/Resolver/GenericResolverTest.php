@@ -40,6 +40,241 @@ final class GenericResolverTest extends TestCase
         self::assertSame('?App\\Models\\User', $resolver->resolveVariable('/Use.xphp', 'user', PHP_INT_MAX));
     }
 
+    public function testNullsafePropertyFetchOnGenericResultIsNullable(): void
+    {
+        // `$users->first()?->name` where `first(): ?T` (=> ?User) and
+        // `User::$name: string`. The nullsafe `?->` short-circuits to null,
+        // so the result type is `?string`, NOT `string`.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User { public string \$name = ''; }\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $firstName = $users->first()?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'firstName', PHP_INT_MAX));
+    }
+
+    public function testNonNullsafePropertyFetchKeepsDeclaredNullability(): void
+    {
+        // A regular `->` access does NOT widen to nullable just because the
+        // property's host is reached through a generic: `$pair->first` where
+        // `first: A` (= Plastic, non-nullable) stays `App\Models\Plastic`.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Plastic.xphp', "<?php\nnamespace App\\Models;\nclass Plastic {}\n");
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->open($workspace, '/Pair.xphp', <<<'XPHP'
+        <?php
+        namespace App\Containers;
+        class Pair<A, B> {
+            public function __construct(public A $first, public B $second) {}
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Pair;
+        use App\Models\Plastic;
+        use App\Models\User;
+        $pair = new Pair::<Plastic, User>(new Plastic(), new User());
+        $f = $pair->first;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('App\\Models\\Plastic', $resolver->resolveVariable('/Use.xphp', 'f', PHP_INT_MAX));
+    }
+
+    public function testDeepNullsafePropertyChainPropagatesNullability(): void
+    {
+        // Two-hop chain: `$users->first()?->bestFriend?->name`. The receiver of
+        // the final `?->name` is itself a (nullsafe) property fetch, which
+        // requires inferType to recurse into property-fetch receivers.
+        // `bestFriend: ?User` lives on a non-generic User, so this also pins
+        // the non-generic-intermediate pass-through. Result: `?string`.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public string \$name = '';\n public ?User \$bestFriend = null;\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $deep = $users->first()?->bestFriend?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'deep', PHP_INT_MAX));
+    }
+
+    public function testNullsafeClassPropertyResolvesToQualifiedFqn(): void
+    {
+        // A bare class-typed property (`?User`) now resolves to the qualified
+        // FQN (via qualifyAgainstNamespace), not the unqualified `?User` --
+        // this is what lets the next chain hop find the class.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public string \$name = '';\n public ?User \$bestFriend = null;\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $bf = $users->first()?->bestFriend;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?App\\Models\\User', $resolver->resolveVariable('/Use.xphp', 'bf', PHP_INT_MAX));
+    }
+
+    public function testNonGenericMethodMidChainResolves(): void
+    {
+        // Gap 2: `$users->first()?->self()?->name` where `self(): ?User` is a
+        // plain method on the non-generic `User`. Previously resolveMethodCall
+        // bailed on a non-generic receiver (empty paramMap) and the chain died;
+        // now it owns a confirmable-class return so the chain continues.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public string \$name = '';\n public function self(): ?User { return null; }\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $n = $users->first()?->self()?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'n', PHP_INT_MAX));
+    }
+
+    public function testNonGenericScalarMethodCallDefersToWorseReflection(): void
+    {
+        // Gate: a non-generic method returning a SCALAR is NOT owned by the
+        // resolver (returns null) -- worse-reflection keeps its richer view of
+        // plain method returns. Locks the conservative Gap-2 gate.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public function getName(): string { return ''; }\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $g = $users->first()?->getName();
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertNull($resolver->resolveVariable('/Use.xphp', 'g', PHP_INT_MAX));
+    }
+
+    public function testCrossNamespaceImportedPropertyTypeResolvesInChain(): void
+    {
+        // The intermediate property `profile` is typed with a class imported
+        // from ANOTHER namespace (`use App\Other\Profile`). Resolving the chain
+        // requires the DECLARING file's use-map, not just its namespace --
+        // same-namespace-only qualification would mis-resolve to
+        // `App\Models\Profile` (nonexistent) and the chain would collapse.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nuse App\\Other\\Profile;\nclass User {\n public ?Profile \$profile = null;\n}\n");
+        $this->open($workspace, '/Profile.xphp', "<?php\nnamespace App\\Other;\nclass Profile {\n public string \$bio = '';\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $bio = $users->first()?->profile?->bio;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'bio', PHP_INT_MAX));
+    }
+
+    public function testCrossNamespaceImportedPropertyTypeRendersQualifiedFqn(): void
+    {
+        // Terminal case: the imported intermediate type itself renders as its
+        // real cross-namespace FQN (App\Other\Profile), not App\Models\Profile.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nuse App\\Other\\Profile;\nclass User {\n public ?Profile \$profile = null;\n}\n");
+        $this->open($workspace, '/Profile.xphp', "<?php\nnamespace App\\Other;\nclass Profile {}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $p = $users->first()?->profile;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?App\\Other\\Profile', $resolver->resolveVariable('/Use.xphp', 'p', PHP_INT_MAX));
+    }
+
+    public function testTripleHopNullsafePropertyChainResolves(): void
+    {
+        // Three hops past the method call -- proves the recursion isn't
+        // limited to a single property-fetch receiver.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public string \$name = '';\n public ?User \$bestFriend = null;\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $deep = $users->first()?->bestFriend?->bestFriend?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'deep', PHP_INT_MAX));
+    }
+
+    public function testDeepPropertyChainWithUnionIntermediateStaysNull(): void
+    {
+        // Safe degradation: an intermediate property with a union type isn't
+        // modelable, so the chain collapses to null (defer to worse-reflection)
+        // rather than producing a wrong type.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public string \$name = '';\n public User|int \$thing = 0;\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $x = $users->first()?->thing?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertNull($resolver->resolveVariable('/Use.xphp', 'x', PHP_INT_MAX));
+    }
+
+    public function testThisPropertyChainDegradesToNull(): void
+    {
+        // `$this` with no binding (top-level) must not crash or mis-resolve a
+        // property chain rooted at it.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Use.xphp', "<?php\n\$x = \$this->prop?->name;\n");
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertNull($resolver->resolveVariable('/Use.xphp', 'x', PHP_INT_MAX));
+    }
+
     public function testRendersReceiverVariableWithTypeArgList(): void
     {
         // Hovering the receiver itself benefits too: `$users` of type

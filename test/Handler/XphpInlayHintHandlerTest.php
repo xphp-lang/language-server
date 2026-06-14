@@ -23,12 +23,60 @@ use XPHP\Lsp\Resolver\CompositeClassLikeLookup;
 use XPHP\Lsp\Resolver\FilesystemClassLikeLookup;
 use XPHP\Lsp\Resolver\GenericResolver;
 use XPHP\Lsp\Resolver\WorkspaceClassLikeLookup;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 use function Amp\Promise\wait;
 
 final class XphpInlayHintHandlerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
+    /**
+     * W7 invariant: every inlay-hint anchor `position` must sit within the
+     * document. A hint carries a point (not a range), so we check it as a
+     * zero-width range.
+     */
+    public function testEmittedHintPositionsAreWithinDocumentBounds(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/Collection.xphp',
+            'xphp',
+            1,
+            <<<'XPHP'
+            <?php
+            namespace App\Containers;
+            class Collection<T>
+            {
+                public function first(): ?T { return null; }
+            }
+            XPHP,
+        ));
+        $workspace->open(new TextDocumentItem(
+            '/User.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App\\Models;\nclass User {}\n",
+        ));
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$first = \$users->first();\n";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        $hints = $this->hintsFor($workspace, '/Use.xphp');
+
+        self::assertNotEmpty($hints, 'fixture should produce a hint to check');
+        foreach ($hints as $i => $hint) {
+            self::assertRangeWithinDocument(
+                $useSource,
+                $hint->position->line,
+                $hint->position->character,
+                $hint->position->line,
+                $hint->position->character,
+                "inlay hint #{$i}",
+            );
+        }
+    }
+
     public function testEmitsSubstitutedReturnTypeForGenericMethodCall(): void
     {
         $workspace = new PhpactorWorkspace();

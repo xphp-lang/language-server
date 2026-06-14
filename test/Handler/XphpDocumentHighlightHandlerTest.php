@@ -26,12 +26,42 @@ use XPHP\Lsp\Resolver\FilesystemClassLikeLookup;
 use XPHP\Lsp\Resolver\GenericResolver;
 use XPHP\Lsp\Resolver\ReferenceFinder;
 use XPHP\Lsp\Resolver\WorkspaceClassLikeLookup;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 use function Amp\Promise\wait;
 
 final class XphpDocumentHighlightHandlerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
+    /**
+     * W7 invariant: every document-highlight `range` must stay within the
+     * document. The fixture spreads the highlighted symbol across several lines
+     * so the check exercises ranges beyond line 0.
+     */
+    public function testEmittedHighlightRangesAreWithinDocumentBounds(): void
+    {
+        $source = "<?php\nnamespace App;\nclass User {}\n\$a = new User();\n\$b = new User();\n";
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $source));
+        $byte = strpos($source, 'class User') + strlen('class ');
+
+        $highlights = $this->highlightsAt($workspace, '/Use.xphp', $source, $byte);
+
+        self::assertNotEmpty($highlights, 'fixture should produce highlights to check');
+        foreach ($highlights as $i => $highlight) {
+            self::assertRangeWithinDocument(
+                $source,
+                $highlight->range->start->line,
+                $highlight->range->start->character,
+                $highlight->range->end->line,
+                $highlight->range->end->character,
+                "document highlight #{$i}",
+            );
+        }
+    }
+
     public function testHighlightsAllReferencesInCurrentFile(): void
     {
         $workspace = new PhpactorWorkspace();

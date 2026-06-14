@@ -254,6 +254,51 @@ final class FqnIndex
     }
 
     /**
+     * Like {@see classLikeFor} but also return the declaring file's full AST,
+     * so a caller can derive the file's name-resolution context (use-map +
+     * namespace). Both branches reuse {@see ParsedDocumentCache} so a deep
+     * chain doesn't re-parse the declaring file per hop.
+     *
+     * @return array{classLike: ClassLike, ast: list<\PhpParser\Node\Stmt>}|null
+     */
+    public function classLikeAstFor(string $fqn, ?string $origin = null): ?array
+    {
+        $needle = ltrim($fqn, '\\');
+        if ($needle === '') {
+            return null;
+        }
+
+        // Open-doc first (live view of unsaved edits).
+        foreach ($this->workspace as $uri => $item) {
+            $result = $this->cache->getOrParse($uri, $item->version, $item->text);
+            if ($result->ast === null) {
+                continue;
+            }
+            $hit = self::findClassLikeInAst($result->ast, $needle);
+            if ($hit !== null) {
+                return ['classLike' => $hit, 'ast' => $result->ast];
+            }
+        }
+
+        $path = $this->selectDecl($needle, $origin)['path'] ?? null;
+        if ($path === null) {
+            return null;
+        }
+        $source = @file_get_contents($path);
+        if ($source === false) {
+            return null;
+        }
+        // version -1 = "filesystem snapshot" (mirrors boundExprsForGenericClass);
+        // routes through the cache so repeated chain hops don't re-parse.
+        $result = $this->cache->getOrParse('file://' . $path, -1, $source);
+        if ($result->ast === null) {
+            return null;
+        }
+        $hit = self::findClassLikeInAst($result->ast, $needle);
+        return $hit === null ? null : ['classLike' => $hit, 'ast' => $result->ast];
+    }
+
+    /**
      * Every class/interface/trait FQN known to the index, from both open
      * docs and the filesystem.  De-duplicated; ordering is insertion-stable
      * (open docs first, then filesystem in walk order).

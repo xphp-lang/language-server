@@ -11,6 +11,7 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -706,10 +707,10 @@ final class GenericResolver
      *
      * @param list<Node\Stmt> $ast
      */
-    private static function findEnclosingMethodCallNameAt(array $ast, int $byteOffset): ?MethodCall
+    private static function findEnclosingMethodCallNameAt(array $ast, int $byteOffset): MethodCall|NullsafeMethodCall|null
     {
         $visitor = new class($byteOffset) extends NodeVisitorAbstract {
-            public ?MethodCall $hit = null;
+            public MethodCall|NullsafeMethodCall|null $hit = null;
 
             public function __construct(private readonly int $offset)
             {
@@ -720,7 +721,7 @@ final class GenericResolver
                 if ($this->hit !== null) {
                     return null;
                 }
-                if (!$node instanceof MethodCall) {
+                if (!$node instanceof MethodCall && !$node instanceof NullsafeMethodCall) {
                     return null;
                 }
                 $name = $node->name;
@@ -835,10 +836,13 @@ final class GenericResolver
      * The maps are file-scoped: the same use stmt may not be in effect
      * elsewhere, but for a single-file resolution this is enough.
      *
+     * Public so the ClassLikeLookup implementations can compute a declaring
+     * file's name-resolution context for {@see ClassLikeLookup::findWithContext}.
+     *
      * @param list<Node\Stmt> $ast
      * @return array{0: array<string, string>, 1: string}
      */
-    private static function useMapAndNamespaceFor(array $ast): array
+    public static function useMapAndNamespaceFor(array $ast): array
     {
         $useMap = [];
         $namespace = '';
@@ -969,7 +973,7 @@ final class GenericResolver
      * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}> $scopes
      * @return array<string, VarBinding|ResolvedType>
      */
-    private static function bindingsAt(array $scopes, int $offset): array
+    public static function bindingsAt(array $scopes, int $offset): array
     {
         $best = null;
         foreach ($scopes as $scope) {
@@ -1136,7 +1140,7 @@ final class GenericResolver
                     }
                     return;
                 }
-                if ($rhs instanceof MethodCall) {
+                if ($rhs instanceof MethodCall || $rhs instanceof NullsafeMethodCall) {
                     $resolved = GenericResolver::resolveMethodCall(
                         $rhs,
                         $this->currentBindings(),
@@ -1357,8 +1361,16 @@ final class GenericResolver
             $varBinding = self::buildFromNew($expr, $classes);
             return $varBinding === null ? null : self::resolvedTypeFromBinding($varBinding);
         }
-        if ($expr instanceof MethodCall) {
+        if ($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall) {
             return self::resolveMethodCall($expr, $bindings, $classes, $fqnIndex, $useMap, $currentNamespace);
+        }
+        if ($expr instanceof PropertyFetch || $expr instanceof NullsafePropertyFetch) {
+            // A property-fetch receiver (`$a?->b?->c`): delegate to
+            // resolvePropertyFetch, which recurses into its own receiver via
+            // inferType. This terminates at a Variable / New_ / *Call leaf
+            // (each hop strips one AST node), so deep property chains resolve
+            // and per-hop nullsafe nullability propagates.
+            return self::resolvePropertyFetch($expr, $bindings, $classes, $fqnIndex, $useMap, $currentNamespace);
         }
         if ($expr instanceof StaticCall) {
             return self::resolveStaticCall($expr, $classes, $useMap, $currentNamespace);
@@ -1367,6 +1379,115 @@ final class GenericResolver
             return self::resolveFuncCall($expr, $fqnIndex);
         }
         return null;
+    }
+
+    /**
+     * Conservative null-dereference detection over a whole document.
+     *
+     * Flags a plain-`->` property/method access whose IMMEDIATE receiver is a
+     * statically nullable member-access sub-expression -- a chain like
+     * `$users->first()->name` where `first()` returns `?User`. In that shape no
+     * inline null-guard is syntactically possible and there is no bare variable
+     * to flow-narrow, so the inferred nullability is a reliable signal.
+     *
+     * Deliberately narrow to keep false positives near zero:
+     *   - only plain `->` accesses (a `?->` access is already null-safe);
+     *   - the receiver must itself be a `->`/`?->` method-call or property-fetch
+     *     (bare-variable receivers like `$x->y` are DEFERRED to a future
+     *     flow-narrowing pass -- guards such as `if ($x !== null)` aren't modelled);
+     *   - when `inferType` can't model the receiver it returns null and nothing
+     *     fires (unresolvable cross-file types degrade safely to no diagnostic).
+     *
+     * Returns sites in STRIPPED-source byte offsets; the diagnostics layer maps
+     * them back to the original buffer.
+     *
+     * @return list<NullDerefSite>
+     */
+    public function findNullDerefSites(string $uri, int $version, string $text): array
+    {
+        $result = $this->documents->getOrParse($uri, $version, $text);
+        $ast = $result->ast;
+        if ($ast === null) {
+            return [];
+        }
+        $scopes = $this->scopesFor($uri, $version, $text);
+        [$useMap, $namespace] = self::useMapAndNamespaceFor($ast);
+
+        $sites = [];
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor(new class(
+            $sites,
+            $scopes,
+            $this->classes,
+            $this->fqnIndex,
+            $useMap,
+            $namespace,
+        ) extends NodeVisitorAbstract {
+            /**
+             * @param list<NullDerefSite>                                                                       $sites
+             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>       $scopes
+             * @param array<string, string>                                                                     $useMap
+             */
+            public function __construct(
+                private array &$sites,
+                private array $scopes,
+                private ClassLikeLookup $classes,
+                private FqnIndex $fqnIndex,
+                private array $useMap,
+                private string $namespace,
+            ) {
+            }
+
+            public function enterNode(Node $node): null
+            {
+                // Only plain `->` accesses; `?->` is already null-safe.
+                if (!$node instanceof PropertyFetch && !$node instanceof MethodCall) {
+                    return null;
+                }
+                if (!$node->name instanceof Identifier) {
+                    return null;
+                }
+                $receiver = $node->var;
+                // Restrict to member-access receivers: a chained sub-expression
+                // that can't carry an inline guard and isn't a narrowable bare
+                // variable. (`$x->y` on a nullable `$x` is deferred.)
+                if (
+                    !$receiver instanceof MethodCall
+                    && !$receiver instanceof NullsafeMethodCall
+                    && !$receiver instanceof PropertyFetch
+                    && !$receiver instanceof NullsafePropertyFetch
+                ) {
+                    return null;
+                }
+                $bindings = GenericResolver::bindingsAt($this->scopes, $receiver->getStartFilePos());
+                $receiverType = GenericResolver::inferType(
+                    $receiver,
+                    $bindings,
+                    $this->classes,
+                    $this->fqnIndex,
+                    $this->useMap,
+                    $this->namespace,
+                );
+                if ($receiverType === null || !$receiverType->nullable) {
+                    return null;
+                }
+                $start = $node->name->getStartFilePos();
+                $end = $node->name->getEndFilePos();
+                if ($start < 0 || $end < $start) {
+                    return null;
+                }
+                $this->sites[] = new NullDerefSite(
+                    $start,
+                    $end,
+                    $node->name->toString(),
+                    $receiverType->render(),
+                );
+                return null;
+            }
+        });
+        $traverser->traverse($ast);
+
+        return $sites;
     }
 
     /**
@@ -1393,7 +1514,7 @@ final class GenericResolver
      * @internal called from the visitor closure and from inferType.
      */
     public static function resolveMethodCall(
-        MethodCall $call,
+        MethodCall|NullsafeMethodCall $call,
         array $bindings,
         ClassLikeLookup $classes,
         FqnIndex $fqnIndex,
@@ -1414,10 +1535,13 @@ final class GenericResolver
         if ($receiverType === null) {
             return null;
         }
-        $classLike = $classes->find($receiverType->ref->name);
-        if ($classLike === null) {
+        // findWithContext (not find) so a bare class name in the return type
+        // can be qualified against the method's DECLARING file (W1/W2).
+        $declaring = $classes->findWithContext($receiverType->ref->name);
+        if ($declaring === null) {
             return null;
         }
+        $classLike = $declaring->classLike;
         $method = self::findMethod($classLike, $call->name->toString());
         if ($method === null) {
             return null;
@@ -1426,29 +1550,44 @@ final class GenericResolver
         if ($returnType === null) {
             return null;
         }
-        // Rebuild paramMap from the receiver's TypeRef args (set during
-        // `resolvedTypeFromBinding` or by a prior chained call's
-        // substituted output).  When the receiver has no args -- e.g.
-        // an unconstrained or already fully-substituted scalar -- the
-        // method's own substitution is a no-op, which is correct.
+        // Rebuild paramMap from the receiver's TypeRef args. Empty for a plain
+        // method on a non-generic receiver -- substitution is then a no-op.
         $paramMap = self::paramMapFromReceiver($classLike, $receiverType);
         $paramMap = self::withMethodTurbofish($paramMap, $call, $method);
-        // No type params in scope = nothing generic to substitute (a plain
-        // method on a non-generic receiver).  Return null so the result isn't
-        // recorded as a binding and worse-reflection keeps ownership of it.
-        if ($paramMap === []) {
-            return null;
-        }
+        $isGeneric = $paramMap !== [];
         $paramNames = array_keys($paramMap);
 
         [$nullable, $ref] = self::returnTypeToRef($returnType, $paramNames) ?? [null, null];
         if ($ref === null) {
             return null;
         }
-        // `static`/`self` bind to the receiver's concrete type, not a param.
-        $substituted = self::relativeTypeToReceiver($ref, $receiverType)
-            ?? Specializer::substituteTypeRef($ref, $paramMap);
-        return new ResolvedType($substituted, $nullable);
+        // `static`/`self`/`parent` bind to the receiver's concrete type.
+        $relative = self::relativeTypeToReceiver($ref, $receiverType);
+        $substituted = $relative
+            ?? ($isGeneric ? Specializer::substituteTypeRef($ref, $paramMap) : $ref);
+        $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
+
+        // Gap 2: a non-generic method used to bail to null (defer to
+        // worse-reflection). Now we OWN it -- so chains continue
+        // (`$users->first()?->self()?->name`) -- but ONLY when the result is a
+        // usable receiver: a relative type, or a class the lookup confirms.
+        // Scalars / unconfirmable names still return null so terminal hovers
+        // and single non-generic calls keep worse-reflection's richer view.
+        if (!$isGeneric && $relative === null) {
+            $confirmable = !$substituted->isScalar
+                && !$substituted->isTypeParam
+                && $substituted->name !== ''
+                && $classes->find(ltrim($substituted->name, '\\')) !== null;
+            if (!$confirmable) {
+                return null;
+            }
+        }
+
+        // A nullsafe call (`$x?->method()`) short-circuits to null when the
+        // receiver is null, so the result is nullable on top of the method's
+        // own return-type nullability.
+        $resultNullable = $nullable || $call instanceof NullsafeMethodCall;
+        return new ResolvedType($substituted, $resultNullable);
     }
 
     /**
@@ -1489,10 +1628,15 @@ final class GenericResolver
         if ($receiverType === null) {
             return null;
         }
-        $classLike = $classes->find($receiverType->ref->name);
-        if ($classLike === null) {
+        // findWithContext (not find) so we get the DECLARING file's use-map +
+        // namespace, needed to qualify a bare class name in the property type
+        // against the file where the property is declared -- incl. cross-namespace
+        // `use` imports.
+        $declaring = $classes->findWithContext($receiverType->ref->name);
+        if ($declaring === null) {
             return null;
         }
+        $classLike = $declaring->classLike;
         $propertyType = self::findPropertyType($classLike, $fetch->name->toString());
         if ($propertyType === null) {
             return null;
@@ -1508,7 +1652,45 @@ final class GenericResolver
             return null;
         }
         $substituted = Specializer::substituteTypeRef($ref, $paramMap);
-        return new ResolvedType($substituted, $nullable);
+        // A property typed as a bare class name (`?User`) resolves to an
+        // UNqualified TypeRef (the resolver runs no NameResolver). That renders
+        // fine for a terminal hover, but a chained access
+        // (`$x?->bestFriend?->name`) needs the intermediate's class FQN so the
+        // next hop can look the class up. Qualify it against the declaring
+        // file's use-map + namespace.
+        $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
+        // A nullsafe access (`$x?->prop`) short-circuits to null when the
+        // receiver is null, so the result is `<propType>|null` regardless of
+        // the property's own declared nullability. A regular `->` does NOT
+        // widen (a null receiver there is a runtime error, not a type).
+        $resultNullable = $nullable || $fetch instanceof NullsafePropertyFetch;
+        return new ResolvedType($substituted, $resultNullable);
+    }
+
+    /**
+     * A bare (non-scalar, non-type-param) class name in a member type --
+     * `?User` -- comes back unqualified because the resolver runs no
+     * NameResolver. Qualify it against the DECLARING file's name-resolution
+     * context (use-map + namespace), so a cross-namespace `use App\Models\User`
+     * resolves correctly and not just same-namespace references. Accept the
+     * candidate ONLY when the lookup confirms it exists -- an unconfirmable name
+     * is left bare so a chain degrades to null rather than fabricating a wrong FQN.
+     */
+    private static function qualifyTypeRef(TypeRef $ref, ClassLikeContext $declaring, ClassLikeLookup $classes): TypeRef
+    {
+        if ($ref->isScalar || $ref->isTypeParam) {
+            return $ref;
+        }
+        $name = $ref->name;
+        // Already namespaced / fully-qualified, or resolvable as-is.
+        if ($name === '' || str_contains($name, '\\') || $classes->find($name) !== null) {
+            return $ref;
+        }
+        $candidate = self::resolveNameWithUseMap(new Name($name), $declaring->useMap, $declaring->namespace);
+        if ($candidate === null || $candidate === $name || $classes->find($candidate) === null) {
+            return $ref; // can't confirm -- leave bare (safe degradation)
+        }
+        return new TypeRef($candidate, $ref->args, $ref->isScalar, $ref->isTypeParam);
     }
 
     /**

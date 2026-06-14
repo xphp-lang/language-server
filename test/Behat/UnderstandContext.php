@@ -9,11 +9,13 @@ use Phpactor\LanguageServerProtocol\Hover;
 use Phpactor\LanguageServerProtocol\InlayHint;
 use Phpactor\LanguageServerProtocol\MarkupContent;
 use Phpactor\LanguageServerProtocol\Position;
+use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\SemanticTokens;
 use Phpactor\LanguageServerProtocol\SignatureHelp;
 use Phpactor\LanguageServerProtocol\SignatureHelpParams;
 use Phpactor\LanguageServerProtocol\TextDocumentIdentifier;
 use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
+use XPHP\Lsp\PositionMap;
 
 /**
  * Steps for the Understand theme: hover, signature help, inlay hints, folding
@@ -261,6 +263,65 @@ final class UnderstandContext implements Context
             $var,
             implode(', ', $seen) ?: '<none>',
         ));
+    }
+
+    /**
+     * @Then every semantic token is within the bounds of :path
+     */
+    public function everySemanticTokenIsWithinTheBoundsOf(string $path): void
+    {
+        $tokens = $this->world->last();
+        $this->world->assert($tokens instanceof SemanticTokens, 'expected a SemanticTokens response, got ' . get_debug_type($tokens));
+        foreach ($this->world->decodeSemanticTokens($tokens, $path) as $i => $token) {
+            // The decoder yields the token's text; its UTF-16 length is what the
+            // LSP wire `length` encodes, so measure it the same way.
+            $len = PositionMap::lengthInUtf16($token['text']);
+            $range = new Range(
+                new Position($token['line'], $token['char']),
+                new Position($token['line'], $token['char'] + $len),
+            );
+            $this->world->assert(
+                $this->world->rangeWithinDocument($path, $range),
+                sprintf('semantic token #%d out of document bounds at %d:%d (+%d)', $i, $token['line'], $token['char'], $len),
+            );
+        }
+    }
+
+    /**
+     * @Then every folding range is within the bounds of :path
+     */
+    public function everyFoldingRangeIsWithinTheBoundsOf(string $path): void
+    {
+        $ranges = $this->world->last();
+        $this->world->assert(is_array($ranges) && $ranges !== [], 'expected a non-empty folding-range list');
+        foreach ($ranges as $i => $range) {
+            // Folding ranges carry only line numbers; check the line span
+            // (column 0 is always valid) against the document bounds.
+            $check = new Range(new Position($range->startLine, 0), new Position($range->endLine, 0));
+            $this->world->assert(
+                $this->world->rangeWithinDocument($path, $check),
+                sprintf('folding range #%d (%d-%d) out of document bounds', $i, $range->startLine, $range->endLine),
+            );
+        }
+    }
+
+    /**
+     * @Then every inlay hint position is within the bounds of :path
+     */
+    public function everyInlayHintPositionIsWithinTheBoundsOf(string $path): void
+    {
+        $hints = $this->world->last();
+        $this->world->assert(is_array($hints) && $hints !== [], 'expected a non-empty inlay-hint list');
+        foreach ($hints as $i => $hint) {
+            if (!$hint instanceof InlayHint) {
+                continue;
+            }
+            $point = new Range($hint->position, $hint->position);
+            $this->world->assert(
+                $this->world->rangeWithinDocument($path, $point),
+                sprintf('inlay hint #%d position out of document bounds at %d:%d', $i, $hint->position->line, $hint->position->character),
+            );
+        }
     }
 
     private function assertHoverContains(string $needle): void

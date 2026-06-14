@@ -15,9 +15,13 @@ use Phpactor\LanguageServerProtocol\Position;
 use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\TextDocumentItem;
 use XPHP\Lsp\Analyzer\Diagnostic;
+use XPHP\Lsp\Analyzer\DiagnosticCode;
+use XPHP\Lsp\Analyzer\DiagnosticSeverity;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
+use XPHP\Lsp\Analyzer\ParseResult;
 use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
 use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Lsp\Resolver\GenericResolver;
 
 /**
  * Bridges the xphp analyzer (per-file + cross-file) to phpactor's diagnostics engine.
@@ -64,6 +68,12 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
          * is skipped and the provider behaves exactly as the per-document linter.
          */
         private readonly ?ClientApi $clientApi = null,
+        /**
+         * Type-inference engine used for the conservative null-dereference
+         * diagnostic (`xphp.null-deref`). Optional: resolver-less contexts
+         * (most unit tests) simply skip that diagnostic and behave as before.
+         */
+        private readonly ?GenericResolver $genericResolver = null,
     ) {
     }
 
@@ -124,7 +134,10 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
         $docMeta = [$currentUri => ['version' => $textDocument->version, 'source' => $textDocument->text]];
         $perFileByUri = [
             $currentUri => $this->toLspClamped(
-                $currentResult->diagnostics,
+                array_merge(
+                    $currentResult->diagnostics,
+                    $this->collectNullDerefDiagnostics($currentUri, $textDocument->version, $textDocument->text, $currentResult),
+                ),
                 $currentUri,
                 $textDocument->version,
                 $textDocument->text,
@@ -141,7 +154,10 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
             $otherResult = $this->cache->getOrParse($uri, $item->version, $item->text);
             $docMeta[$uri] = ['version' => $item->version, 'source' => $item->text];
             $perFileByUri[$uri] = $this->toLspClamped(
-                $otherResult->diagnostics,
+                array_merge(
+                    $otherResult->diagnostics,
+                    $this->collectNullDerefDiagnostics($uri, $item->version, $item->text, $otherResult),
+                ),
                 $uri,
                 $item->version,
                 $item->text,
@@ -199,6 +215,56 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
         }
 
         return $result;
+    }
+
+    /**
+     * Conservative null-dereference diagnostics (`xphp.null-deref`) for one
+     * document. Asks the type-inference resolver for plain-`->` accesses on a
+     * statically nullable chained receiver, then maps each site's STRIPPED-source
+     * byte offsets back to the original buffer (via the parse's `ByteOffsetMap`)
+     * and on to an LSP range (via the cached `PositionMap`).
+     *
+     * No-op when no resolver is wired (pull-mode unit contexts) or the document
+     * didn't parse -- the rest of the pipeline is unaffected.
+     *
+     * @return list<Diagnostic>
+     */
+    private function collectNullDerefDiagnostics(string $uri, int $version, string $source, ParseResult $result): array
+    {
+        if ($this->genericResolver === null || $result->ast === null) {
+            return [];
+        }
+        $sites = $this->genericResolver->findNullDerefSites($uri, $version, $source);
+        if ($sites === []) {
+            return [];
+        }
+        $positionMap = $this->cache->positionMap($uri, $version, $source);
+        $out = [];
+        foreach ($sites as $site) {
+            $origStart = $result->byteOffsetMap->toOriginal($site->strippedStart);
+            // end offset is inclusive in the AST; +1 makes the LSP range
+            // half-open over the last character of the member name.
+            $origEnd = $result->byteOffsetMap->toOriginal($site->strippedEnd + 1);
+            if ($origStart < 0 || $origEnd < $origStart) {
+                continue;
+            }
+            [$startLine, $startChar] = $positionMap->offsetToPosition($origStart);
+            [$endLine, $endChar] = $positionMap->offsetToPosition($origEnd);
+            $out[] = new Diagnostic(
+                startLine: $startLine,
+                startCharacter: $startChar,
+                endLine: $endLine,
+                endCharacter: $endChar,
+                message: sprintf(
+                    'Accessing "%s" on a possibly-null value (%s). Use `?->` or guard against null first.',
+                    $site->member,
+                    $site->receiverType,
+                ),
+                code: DiagnosticCode::NullDeref,
+                severity: DiagnosticSeverity::Warning,
+            );
+        }
+        return $out;
     }
 
     /**

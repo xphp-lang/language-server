@@ -460,6 +460,44 @@ final class XphpDefinitionHandlerTest extends TestCase
         self::assertSame(5, $location->range->end->character - $location->range->start->character);
     }
 
+    public function testJumpsThroughAMethodChainToTheFinalMethodDeclaration(): void
+    {
+        // Chained-method GTD: the receiver of the clicked `mirror` is itself a
+        // method call (`$users->first()?->mirror()`), a NON-generic method on
+        // User -- so this exercises the recursive inferType chain through a
+        // non-generic mid-hop (W3).
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/Collection.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App\Containers;
+        class Collection<T>
+        {
+            public function first(): ?T { return null; }
+        }
+        XPHP));
+        $workspace->open(new TextDocumentItem('/User.xphp', 'xphp', 1, <<<'XPHP'
+        <?php
+        namespace App\Models;
+        class User
+        {
+            public function mirror(): ?User { return null; }
+        }
+        XPHP));
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n"
+            . "\$users = new Collection::<User>();\n\$x = \$users->first()?->mirror()?->mirror();\n";
+        $workspace->open(new TextDocumentItem('/Use.xphp', 'xphp', 1, $useSource));
+
+        // Cursor on the SECOND `mirror` (its receiver is the non-generic
+        // `$users->first()?->mirror()`).
+        $byte = strpos($useSource, '?->mirror()?->mirror') + strlen('?->mirror()?->');
+        self::assertNotFalse($byte);
+        $location = $this->definitionAtOffset($this->newHandler($workspace), '/Use.xphp', $useSource, $byte);
+
+        self::assertNotNull($location);
+        self::assertSame('/User.xphp', $location->uri);
+        self::assertSame(6, $location->range->end->character - $location->range->start->character); // "mirror"
+    }
+
     private function newHandler(PhpactorWorkspace $workspace, ?string $rootPath = null): XphpDefinitionHandler
     {
         $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());

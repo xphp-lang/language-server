@@ -52,6 +52,26 @@ final class WorkspaceClassLikeLookup implements ClassLikeLookup
         return null;
     }
 
+    public function findWithContext(string $fqn): ?ClassLikeContext
+    {
+        $needle = ltrim($fqn, '\\');
+        if ($needle === '') {
+            return null;
+        }
+        foreach ($this->workspace as $uri => $item) {
+            $result = $this->cache->getOrParse($uri, $item->version, $item->text);
+            if ($result->ast === null) {
+                continue;
+            }
+            $hit = self::findInAst($result->ast, $needle);
+            if ($hit !== null) {
+                [$useMap, $namespace] = GenericResolver::useMapAndNamespaceFor($result->ast);
+                return new ClassLikeContext($hit, $useMap, $namespace);
+            }
+        }
+        return null;
+    }
+
     /**
      * @param list<Node\Stmt> $ast
      */

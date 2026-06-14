@@ -278,6 +278,52 @@ final class NavigateContext implements Context
         ));
     }
 
+    /**
+     * @Then every document highlight range is within the bounds of :path
+     */
+    public function everyDocumentHighlightRangeIsWithinTheBoundsOf(string $path): void
+    {
+        $highlights = $this->world->last();
+        $this->world->assert(is_array($highlights) && $highlights !== [], 'expected a non-empty highlight list');
+        foreach ($highlights as $i => $highlight) {
+            $this->world->assert(
+                $this->world->rangeWithinDocument($path, $highlight->range),
+                sprintf('document highlight #%d out of document bounds', $i),
+            );
+        }
+    }
+
+    /**
+     * @Then every document symbol range is within the bounds of :path
+     */
+    public function everyDocumentSymbolRangeIsWithinTheBoundsOf(string $path): void
+    {
+        $symbols = $this->world->last();
+        $this->world->assert(is_array($symbols) && $symbols !== [], 'expected a non-empty document-symbol list');
+        $this->assertSymbolRangesWithinBounds($symbols, $path);
+    }
+
+    /**
+     * Recurse `range` + `selectionRange` of each symbol and its children.
+     *
+     * @param list<DocumentSymbol> $symbols
+     */
+    private function assertSymbolRangesWithinBounds(array $symbols, string $path): void
+    {
+        foreach ($symbols as $symbol) {
+            if (!$symbol instanceof DocumentSymbol) {
+                continue;
+            }
+            foreach (['range' => $symbol->range, 'selectionRange' => $symbol->selectionRange] as $label => $range) {
+                $this->world->assert(
+                    $this->world->rangeWithinDocument($path, $range),
+                    sprintf('%s of document symbol "%s" out of document bounds', $label, $symbol->name),
+                );
+            }
+            $this->assertSymbolRangesWithinBounds(is_array($symbol->children) ? $symbol->children : [], $path);
+        }
+    }
+
     private function matchesPath(string $uri, string $path): bool
     {
         return $uri === $path

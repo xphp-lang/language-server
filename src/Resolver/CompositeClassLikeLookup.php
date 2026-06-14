@@ -38,4 +38,15 @@ final class CompositeClassLikeLookup implements ClassLikeLookup
         }
         return null;
     }
+
+    public function findWithContext(string $fqn): ?ClassLikeContext
+    {
+        foreach ($this->lookups as $lookup) {
+            $found = $lookup->findWithContext($fqn);
+            if ($found !== null) {
+                return $found;
+            }
+        }
+        return null;
+    }
 }

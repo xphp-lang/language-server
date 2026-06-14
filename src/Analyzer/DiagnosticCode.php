@@ -92,6 +92,24 @@ enum DiagnosticCode: string
     case ArgumentMismatch = 'xphp.arg-mismatch';
 
     /**
+     * A property/method was accessed via plain `->` on a receiver whose
+     * static type is nullable -- a would-be runtime
+     * `Error: Attempt to read property "x" on null` (or
+     * `Call to a member function on null`).
+     *
+     * Conservative scope (low false-positive): fires ONLY when the immediate
+     * receiver is itself a nullable member-access sub-expression -- a chain
+     * like `$users->first()->name` where `first()` returns `?User` and no
+     * inline guard is syntactically possible. Bare-variable receivers
+     * (`$x->y`) are deferred to a future flow-narrowing pass, and a nullsafe
+     * access (`$users->first()?->name`) is correct so it never fires.
+     *
+     * Severity is Warning, not Error: the inference is conservative but the
+     * editor should keep it dismissable, matching `xphp.undefined-name`.
+     */
+    case NullDeref = 'xphp.null-deref';
+
+    /**
      * Map a RuntimeException raised by Registry::recordInstantiation to its
      * diagnostic code. The Registry doesn't (currently) use a typed exception
      * hierarchy, so we triage by the error message's leading phrase. The

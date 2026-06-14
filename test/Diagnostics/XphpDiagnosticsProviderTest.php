@@ -20,6 +20,10 @@ use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
 use XPHP\Lsp\Diagnostics\XphpDiagnosticsProvider;
 use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Lsp\Resolver\CompositeClassLikeLookup;
+use XPHP\Lsp\Resolver\FilesystemClassLikeLookup;
+use XPHP\Lsp\Resolver\GenericResolver;
+use XPHP\Lsp\Resolver\WorkspaceClassLikeLookup;
 use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 use function Amp\Promise\wait;
@@ -44,6 +48,110 @@ final class XphpDiagnosticsProviderTest extends TestCase
 
         $diagnostics = $this->lint($workspace,$clean);
         self::assertSame([], $diagnostics);
+    }
+
+    public function testNullDerefOnChainedNullableReceiverIsFlagged(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $doc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class User { public string $name = ''; }
+        class Collection<T>
+        {
+            public function first(): ?T { return null; }
+        }
+        $users = new Collection::<User>();
+        $name = $users->first()->name;
+        XPHP);
+
+        $diagnostics = $this->lintWithResolver($workspace, $doc);
+
+        $nullDeref = array_values(array_filter(
+            $diagnostics,
+            static fn (LspDiagnostic $d): bool => (string) $d->code === 'xphp.null-deref',
+        ));
+        self::assertCount(1, $nullDeref, 'expected exactly one null-deref diagnostic');
+        self::assertSame('xphp', $nullDeref[0]->source);
+        self::assertSame(2, $nullDeref[0]->severity, 'null-deref is a Warning');
+        self::assertStringContainsString('name', $nullDeref[0]->message);
+        self::assertStringContainsString('?App\\User', $nullDeref[0]->message);
+        // The range must land on the `name` member token, inside the buffer.
+        self::assertRangeWithinDocument(
+            $doc->text,
+            $nullDeref[0]->range->start->line,
+            $nullDeref[0]->range->start->character,
+            $nullDeref[0]->range->end->line,
+            $nullDeref[0]->range->end->character,
+        );
+        self::assertSame(8, $nullDeref[0]->range->start->line);
+    }
+
+    public function testNullsafeChainIsNotFlagged(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $doc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class User { public string $name = ''; }
+        class Collection<T>
+        {
+            public function first(): ?T { return null; }
+        }
+        $users = new Collection::<User>();
+        $name = $users->first()?->name;
+        XPHP);
+
+        $codes = array_map(
+            static fn (LspDiagnostic $d): string => (string) $d->code,
+            $this->lintWithResolver($workspace, $doc),
+        );
+        self::assertNotContains('xphp.null-deref', $codes);
+    }
+
+    public function testChainThroughNonNullableReceiverIsNotFlagged(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $doc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class User { public string $name = ''; }
+        class Collection<T>
+        {
+            public function get(): T { return $this->items[0]; }
+        }
+        $users = new Collection::<User>();
+        $name = $users->get()->name;
+        XPHP);
+
+        $codes = array_map(
+            static fn (LspDiagnostic $d): string => (string) $d->code,
+            $this->lintWithResolver($workspace, $doc),
+        );
+        self::assertNotContains('xphp.null-deref', $codes);
+    }
+
+    public function testNullDerefIsSkippedWhenNoResolverIsWired(): void
+    {
+        $workspace = new PhpactorWorkspace();
+        $doc = $this->openDoc($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class User { public string $name = ''; }
+        class Collection<T>
+        {
+            public function first(): ?T { return null; }
+        }
+        $users = new Collection::<User>();
+        $name = $users->first()->name;
+        XPHP);
+
+        // The default helper builds a provider with NO resolver.
+        $codes = array_map(
+            static fn (LspDiagnostic $d): string => (string) $d->code,
+            $this->lint($workspace, $doc),
+        );
+        self::assertNotContains('xphp.null-deref', $codes);
     }
 
     public function testSyntaxErrorYieldsSingleDiagnostic(): void
@@ -703,6 +811,40 @@ final class XphpDiagnosticsProviderTest extends TestCase
             $workspace,
             new FqnIndex($workspace, $cache, $parser, $rootPath),
         );
+    }
+
+    /**
+     * Like `lint`, but wires a real `GenericResolver` so the conservative
+     * null-dereference diagnostic (`xphp.null-deref`) is active.
+     *
+     * @return list<LspDiagnostic>
+     */
+    private function lintWithResolver(PhpactorWorkspace $workspace, TextDocumentItem $textDocument): array
+    {
+        $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
+        $cache = new ParsedDocumentCache(new Analyzer($parser));
+        $fqnIndex = new FqnIndex($workspace, $cache, $parser, '');
+        $resolver = new GenericResolver(
+            $workspace,
+            $cache,
+            new CompositeClassLikeLookup(
+                new WorkspaceClassLikeLookup($workspace, $cache),
+                new FilesystemClassLikeLookup($fqnIndex),
+            ),
+            $parser,
+            $fqnIndex,
+        );
+        $provider = new XphpDiagnosticsProvider(
+            $cache,
+            new WorkspaceAnalyzer(),
+            $workspace,
+            $fqnIndex,
+            null,
+            $resolver,
+        );
+        $cancel = (new CancellationTokenSource())->getToken();
+        $result = wait($provider->provideDiagnostics($textDocument, $cancel));
+        return is_array($result) ? array_values($result) : [];
     }
 
     private function openDoc(PhpactorWorkspace $workspace, string $uri, string $text): TextDocumentItem

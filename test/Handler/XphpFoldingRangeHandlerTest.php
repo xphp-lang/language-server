@@ -15,12 +15,53 @@ use PHPUnit\Framework\TestCase;
 use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Handler\XphpFoldingRangeHandler;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 use function Amp\Promise\wait;
 
 final class XphpFoldingRangeHandlerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
+    /**
+     * W7 invariant: every folding range must stay within the document. Folding
+     * ranges carry only line numbers (no characters), so we assert the line
+     * span against the document bounds (the trait also enforces endLine >=
+     * startLine).
+     */
+    public function testEmittedFoldingRangesAreWithinDocumentBounds(): void
+    {
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+
+        interface Shape
+        {
+            public function area(): float;
+        }
+
+        class Box<T> implements Shape
+        {
+            public function area(): float
+            {
+                return 0.0;
+            }
+        }
+        XPHP;
+
+        foreach ($this->foldingRangesFor($source) as $i => $range) {
+            self::assertRangeWithinDocument(
+                $source,
+                $range->startLine,
+                0,
+                $range->endLine,
+                0,
+                "folding range #{$i}",
+            );
+        }
+    }
+
     public function testFoldsMultiLineClassBodyAndMethodBodies(): void
     {
         $source = <<<'XPHP'

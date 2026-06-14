@@ -182,3 +182,133 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "first" at line 6 of "/Use.xphp"
     Then the hover contents contain "Pair<App\Plastic, App\User> $first"
+
+  Scenario: A nullsafe property access on a nullable generic result is itself nullable
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class User { public string $name = ''; }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $firstName = $users->first()?->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "firstName" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $firstName"
+
+  Scenario: A multi-hop nullsafe property chain through a nullable generic result is nullable
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class User
+      {
+          public string $name = '';
+          public ?User $bestFriend = null;
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $friendName = $users->first()?->bestFriend?->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "friendName" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $friendName"
+
+  Scenario: A chain through a non-generic method resolves
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class User
+      {
+          public string $name = '';
+          public function mirror(): ?User { return null; }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $picked = $users->first()?->mirror()?->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "picked" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $picked"
+
+  Scenario: A chain through a property typed via a cross-namespace use import resolves
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/Profile.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Other;
+      class Profile { public string $bio = ''; }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      use App\Other\Profile;
+      class User
+      {
+          public ?Profile $profile = null;
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $profileBio = $users->first()?->profile?->bio;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "profileBio" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $profileBio"

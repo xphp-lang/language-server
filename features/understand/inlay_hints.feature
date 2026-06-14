@@ -30,6 +30,7 @@ Feature: Inlay hints
     When I request "textDocument/inlayHint" for the visible range of "/Use.xphp"
     Then exactly 1 inlay hint is rendered
     And an inlay hint ": ?App\Models\User" is rendered after "$first" on line 4 of "/Use.xphp"
+    And every inlay hint position is within the bounds of "/Use.xphp"
 
   Scenario: Hint a generic method turbofish called on a local-variable receiver
     Given the file at "/Util.xphp" contains the following lines:
