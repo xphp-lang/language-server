@@ -15,12 +15,68 @@ use PHPUnit\Framework\TestCase;
 use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Handler\XphpDocumentSymbolHandler;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 use function Amp\Promise\wait;
 
 final class XphpDocumentSymbolHandlerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
+    /**
+     * W7 invariant: every document-symbol `range` AND `selectionRange` (the
+     * full symbol span and its name token) must stay within the document, at
+     * every nesting depth (class -> members).
+     */
+    public function testEmittedSymbolRangesAreWithinDocumentBounds(): void
+    {
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+
+        class Repo<T>
+        {
+            const VERSION = '1';
+
+            private T[] $items = [];
+
+            public function add(T $item): void
+            {
+                $this->items[] = $item;
+            }
+        }
+
+        function helper(): void
+        {
+        }
+        XPHP;
+
+        $this->assertSymbolRangesWithinDocument($this->collect($source), $source);
+    }
+
+    /**
+     * Recurse `range` + `selectionRange` of each symbol (and its children).
+     *
+     * @param list<DocumentSymbol> $symbols
+     */
+    private function assertSymbolRangesWithinDocument(array $symbols, string $source): void
+    {
+        foreach ($symbols as $symbol) {
+            foreach (['range' => $symbol->range, 'selectionRange' => $symbol->selectionRange] as $label => $range) {
+                self::assertRangeWithinDocument(
+                    $source,
+                    $range->start->line,
+                    $range->start->character,
+                    $range->end->line,
+                    $range->end->character,
+                    sprintf('%s of "%s"', $label, $symbol->name),
+                );
+            }
+            $this->assertSymbolRangesWithinDocument($symbol->children ?? [], $source);
+        }
+    }
+
     public function testEmitsClassWithMethodsAndPropertiesAndConstants(): void
     {
         $symbols = $this->collect(<<<'XPHP'

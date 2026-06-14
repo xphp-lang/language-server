@@ -15,6 +15,7 @@ Feature: Semantic tokens
     When I request "textDocument/semanticTokens/full" for "/box.xphp"
     Then the semantic tokens are non-empty
     And a "typeParameter" token covers "T" in "/box.xphp"
+    And every semantic token is within the bounds of "/box.xphp"
 
   Scenario: Highlight the type parameter of a generic closure
     Given the file at "/closure.xphp" contains the following lines:

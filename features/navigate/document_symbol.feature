@@ -21,6 +21,7 @@ Feature: Document symbol outline
     When I request "textDocument/documentSymbol" for "/User.xphp"
     Then the outline contains a class "User" with 5 members
     And the "User" selection range in "/User.xphp" covers "User"
+    And every document symbol range is within the bounds of "/User.xphp"
 
   Scenario Outline: Each declared member appears nested in the outline
     When I request "textDocument/documentSymbol" for "/User.xphp"

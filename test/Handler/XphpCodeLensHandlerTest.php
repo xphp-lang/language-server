@@ -26,12 +26,15 @@ use XPHP\Lsp\Resolver\FilesystemClassLikeLookup;
 use XPHP\Lsp\Resolver\GenericResolver;
 use XPHP\Lsp\Resolver\ReferenceFinder;
 use XPHP\Lsp\Resolver\WorkspaceClassLikeLookup;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 use function Amp\Promise\wait;
 
 final class XphpCodeLensHandlerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
     private string $root;
 
     protected function setUp(): void
@@ -269,6 +272,50 @@ final class XphpCodeLensHandlerTest extends TestCase
         $unresolved->data = ['uri' => '/Foo.xphp', 'line' => 3, 'character' => 20];
         $resolved = wait($handler->resolve($unresolved));
         self::assertSame('2 usages', $resolved->command?->title);
+    }
+
+    /**
+     * W7 invariant: every code-lens `range` must stay within the document.
+     */
+    public function testEmittedLensRangesAreWithinDocumentBounds(): void
+    {
+        $source = <<<'PHP'
+        <?php
+        namespace App;
+
+        class Service
+        {
+            public function handle(): void
+            {
+            }
+
+            public function run(): void
+            {
+            }
+        }
+
+        function bootstrap(): void
+        {
+        }
+        PHP;
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/Service.xphp', 'xphp', 1, $source));
+
+        $lenses = wait($this->newHandler($workspace)->codeLens(
+            new CodeLensParams(new TextDocumentIdentifier('/Service.xphp')),
+        ));
+
+        self::assertNotEmpty($lenses, 'fixture should produce lenses to check');
+        foreach ($lenses as $i => $lens) {
+            self::assertRangeWithinDocument(
+                $source,
+                $lens->range->start->line,
+                $lens->range->start->character,
+                $lens->range->end->line,
+                $lens->range->end->character,
+                "code lens #{$i}",
+            );
+        }
     }
 
     private function newHandler(PhpactorWorkspace $workspace): XphpCodeLensHandler

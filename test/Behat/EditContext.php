@@ -352,6 +352,24 @@ final class EditContext implements Context
     }
 
     /**
+     * @Then every code lens range is within the bounds of :path
+     */
+    public function everyCodeLensRangeIsWithinTheBoundsOf(string $path): void
+    {
+        $lenses = $this->world->last();
+        $this->world->assert(is_array($lenses) && $lenses !== [], 'expected a non-empty code-lens list');
+        foreach ($lenses as $i => $lens) {
+            if (!$lens instanceof CodeLens) {
+                continue;
+            }
+            $this->world->assert(
+                $this->world->rangeWithinDocument($path, $lens->range),
+                sprintf('code lens #%d out of document bounds', $i),
+            );
+        }
+    }
+
+    /**
      * @Then a code lens titled :title is offered
      */
     public function aCodeLensTitledIsOffered(string $title): void

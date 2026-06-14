@@ -23,6 +23,7 @@ Feature: Folding ranges
     When I request "textDocument/foldingRange" for "/Box.xphp"
     Then the response contains 3 folding ranges
     And a folding range of kind "region" spans 2 to 12
+    And every folding range is within the bounds of "/Box.xphp"
 
   Scenario: Single-line declarations are not folded
     Given the file at "/One.xphp" contains the following lines:

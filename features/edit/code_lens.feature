@@ -23,6 +23,7 @@ Feature: Code lens
   Scenario: Emit a "Show references" lens for a declaration
     When I request code lenses for "/Foo.xphp"
     Then a code lens titled "Show references" is offered
+    And every code lens range is within the bounds of "/Foo.xphp"
 
   Scenario: Resolve a lens to a usage count
     When I request code lenses for "/Foo.xphp"

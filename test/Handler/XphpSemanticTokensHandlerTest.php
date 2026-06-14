@@ -14,12 +14,88 @@ use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Handler\SemanticTokens\TokenLegend;
 use XPHP\Lsp\Handler\XphpSemanticTokensHandler;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 use function Amp\Promise\wait;
 
 final class XphpSemanticTokensHandlerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
+    /**
+     * W7 invariant: every semantic token the handler emits must sit inside the
+     * document. A strict client annotator (PhpStorm) throws "Range must be
+     * inside element being annotated" otherwise. Tokens are delta-encoded and
+     * single-line (the builder splits multi-line tokens one-per-line), so each
+     * decodes to `(line, char)..(line, char + length)`.
+     */
+    public function testEmittedTokensAreWithinDocumentBounds(): void
+    {
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+
+        use App\Models\User;
+
+        class Collection<T>
+        {
+            public T $first;
+
+            public function map(callable $fn): Collection
+            {
+                // a comment spanning the method body
+                return $this;
+            }
+        }
+
+        $users = new Collection::<User>();
+        $mapped = $users->map(fn ($u) => $u);
+        XPHP;
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem('/bounds.xphp', 'xphp', 1, $source));
+
+        $result = wait($this->newHandler($workspace)->semanticTokensFull(['uri' => '/bounds.xphp']));
+
+        self::assertInstanceOf(SemanticTokens::class, $result);
+        self::assertNotEmpty($result->data, 'fixture should produce tokens to check');
+        foreach (self::decodeTokens($result->data) as $i => $token) {
+            self::assertRangeWithinDocument(
+                $source,
+                $token['line'],
+                $token['char'],
+                $token['line'],
+                $token['char'] + $token['length'],
+                "semantic token #{$i}",
+            );
+        }
+    }
+
+    /**
+     * Decode the delta-encoded `data` stream (5 ints per token: deltaLine,
+     * deltaChar, length, typeIndex, modifierMask) into absolute positions.
+     *
+     * @param  list<int> $data
+     * @return list<array{line: int, char: int, length: int}>
+     */
+    private static function decodeTokens(array $data): array
+    {
+        $out = [];
+        $line = 0;
+        $char = 0;
+        for ($i = 0; $i + 5 <= count($data); $i += 5) {
+            [$deltaLine, $deltaChar, $length] = array_slice($data, $i, 3);
+            if ($deltaLine > 0) {
+                $line += $deltaLine;
+                $char = $deltaChar;
+            } else {
+                $char += $deltaChar;
+            }
+            $out[] = ['line' => $line, 'char' => $char, 'length' => $length];
+        }
+        return $out;
+    }
+
     public function testCapabilityAdvertisesLegendAndFullSupport(): void
     {
         $handler = $this->newHandler(new PhpactorWorkspace());
