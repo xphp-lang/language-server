@@ -836,10 +836,13 @@ final class GenericResolver
      * The maps are file-scoped: the same use stmt may not be in effect
      * elsewhere, but for a single-file resolution this is enough.
      *
+     * Public so the ClassLikeLookup implementations can compute a declaring
+     * file's name-resolution context for {@see ClassLikeLookup::findWithContext}.
+     *
      * @param list<Node\Stmt> $ast
      * @return array{0: array<string, string>, 1: string}
      */
-    private static function useMapAndNamespaceFor(array $ast): array
+    public static function useMapAndNamespaceFor(array $ast): array
     {
         $useMap = [];
         $namespace = '';

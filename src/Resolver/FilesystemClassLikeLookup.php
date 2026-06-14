@@ -31,4 +31,14 @@ final class FilesystemClassLikeLookup implements ClassLikeLookup
     {
         return $this->index->classLikeFor($fqn);
     }
+
+    public function findWithContext(string $fqn): ?ClassLikeContext
+    {
+        $hit = $this->index->classLikeAstFor($fqn);
+        if ($hit === null) {
+            return null;
+        }
+        [$useMap, $namespace] = GenericResolver::useMapAndNamespaceFor($hit['ast']);
+        return new ClassLikeContext($hit['classLike'], $useMap, $namespace);
+    }
 }

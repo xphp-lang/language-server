@@ -29,4 +29,12 @@ interface ClassLikeLookup
      * `ATTR_GENERIC_PARAMS` on it without re-parsing.
      */
     public function find(string $fqn): ?ClassLike;
+
+    /**
+     * Like {@see find}, but also return the DECLARING file's name-resolution
+     * context (use-map + namespace) so callers can qualify bare class names in
+     * that class's member types against the file where it was declared. Returns
+     * null when the FQN isn't found.
+     */
+    public function findWithContext(string $fqn): ?ClassLikeContext;
 }
