@@ -11,6 +11,7 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -1136,7 +1137,7 @@ final class GenericResolver
                     }
                     return;
                 }
-                if ($rhs instanceof MethodCall) {
+                if ($rhs instanceof MethodCall || $rhs instanceof NullsafeMethodCall) {
                     $resolved = GenericResolver::resolveMethodCall(
                         $rhs,
                         $this->currentBindings(),
@@ -1357,7 +1358,7 @@ final class GenericResolver
             $varBinding = self::buildFromNew($expr, $classes);
             return $varBinding === null ? null : self::resolvedTypeFromBinding($varBinding);
         }
-        if ($expr instanceof MethodCall) {
+        if ($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall) {
             return self::resolveMethodCall($expr, $bindings, $classes, $fqnIndex, $useMap, $currentNamespace);
         }
         if ($expr instanceof StaticCall) {
@@ -1393,7 +1394,7 @@ final class GenericResolver
      * @internal called from the visitor closure and from inferType.
      */
     public static function resolveMethodCall(
-        MethodCall $call,
+        MethodCall|NullsafeMethodCall $call,
         array $bindings,
         ClassLikeLookup $classes,
         FqnIndex $fqnIndex,
@@ -1448,7 +1449,11 @@ final class GenericResolver
         // `static`/`self` bind to the receiver's concrete type, not a param.
         $substituted = self::relativeTypeToReceiver($ref, $receiverType)
             ?? Specializer::substituteTypeRef($ref, $paramMap);
-        return new ResolvedType($substituted, $nullable);
+        // A nullsafe call (`$x?->method()`) short-circuits to null when the
+        // receiver is null, so the result is nullable on top of the method's
+        // own return-type nullability.
+        $resultNullable = $nullable || $call instanceof NullsafeMethodCall;
+        return new ResolvedType($substituted, $resultNullable);
     }
 
     /**
@@ -1508,7 +1513,12 @@ final class GenericResolver
             return null;
         }
         $substituted = Specializer::substituteTypeRef($ref, $paramMap);
-        return new ResolvedType($substituted, $nullable);
+        // A nullsafe access (`$x?->prop`) short-circuits to null when the
+        // receiver is null, so the result is `<propType>|null` regardless of
+        // the property's own declared nullability. A regular `->` does NOT
+        // widen (a null receiver there is a runtime error, not a type).
+        $resultNullable = $nullable || $fetch instanceof NullsafePropertyFetch;
+        return new ResolvedType($substituted, $resultNullable);
     }
 
     /**

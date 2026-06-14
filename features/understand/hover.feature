@@ -182,3 +182,31 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "first" at line 6 of "/Use.xphp"
     Then the hover contents contain "Pair<App\Plastic, App\User> $first"
+
+  Scenario: A nullsafe property access on a nullable generic result is itself nullable
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class User { public string $name = ''; }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $firstName = $users->first()?->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "firstName" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $firstName"

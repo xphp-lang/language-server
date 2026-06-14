@@ -40,6 +40,56 @@ final class GenericResolverTest extends TestCase
         self::assertSame('?App\\Models\\User', $resolver->resolveVariable('/Use.xphp', 'user', PHP_INT_MAX));
     }
 
+    public function testNullsafePropertyFetchOnGenericResultIsNullable(): void
+    {
+        // `$users->first()?->name` where `first(): ?T` (=> ?User) and
+        // `User::$name: string`. The nullsafe `?->` short-circuits to null,
+        // so the result type is `?string`, NOT `string`.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User { public string \$name = ''; }\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $firstName = $users->first()?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'firstName', PHP_INT_MAX));
+    }
+
+    public function testNonNullsafePropertyFetchKeepsDeclaredNullability(): void
+    {
+        // A regular `->` access does NOT widen to nullable just because the
+        // property's host is reached through a generic: `$pair->first` where
+        // `first: A` (= Plastic, non-nullable) stays `App\Models\Plastic`.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Plastic.xphp', "<?php\nnamespace App\\Models;\nclass Plastic {}\n");
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $this->open($workspace, '/Pair.xphp', <<<'XPHP'
+        <?php
+        namespace App\Containers;
+        class Pair<A, B> {
+            public function __construct(public A $first, public B $second) {}
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Pair;
+        use App\Models\Plastic;
+        use App\Models\User;
+        $pair = new Pair::<Plastic, User>(new Plastic(), new User());
+        $f = $pair->first;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('App\\Models\\Plastic', $resolver->resolveVariable('/Use.xphp', 'f', PHP_INT_MAX));
+    }
+
     public function testRendersReceiverVariableWithTypeArgList(): void
     {
         // Hovering the receiver itself benefits too: `$users` of type
