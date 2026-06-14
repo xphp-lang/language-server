@@ -25,6 +25,20 @@ Feature: Diagnostics
     When I analyze "/Broken.xphp" for diagnostics
     Then a "xphp.parse" diagnostic is reported saying "Syntax error"
 
+  Scenario: An EOF-anchored syntax error stays within document bounds
+    # Regression for the PhpStorm "Range must be inside element being annotated"
+    # crash: an unterminated block comment yields an EOF-anchored error whose raw
+    # end column lands one past EOL. The emitted range must be clamped.
+    Given the file at "/Unterminated.xphp" contains the following lines:
+      """
+      <?php
+      /* unterminated
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Unterminated.xphp" for diagnostics
+    Then a "xphp.parse" diagnostic is reported saying "Syntax error"
+    And every reported diagnostic range is within document bounds
+
   Scenario: Warn about an undefined bareword
     Given the file at "/Typo.xphp" contains the following lines:
       """

@@ -104,6 +104,13 @@ class Analyzer
         }
         $startLine = PositionMap::lspLineFromNikic($e->getStartLine());
         $endLine = PositionMap::lspLineFromNikic($e->getEndLine());
+        // nikic columns are 1-based BYTE columns and, for an EOF-anchored error,
+        // `endColumn` is `lineLength + 1` (one past EOL). Clamp the whole range
+        // into the buffer so we never hand the client a range outside the
+        // document it can render -- a strict LSP annotator (PhpStorm) throws on
+        // an out-of-bounds range mid-edit.
+        [$startLine, $startCharacter, $endLine, $endCharacter] =
+            $positionMap->clampRange($startLine, $startCharacter, $endLine, $endCharacter);
         return new Diagnostic(
             startLine: $startLine,
             startCharacter: $startCharacter,

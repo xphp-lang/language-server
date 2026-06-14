@@ -11,7 +11,10 @@ use Phpactor\LanguageServer\Core\Diagnostics\DiagnosticsProvider;
 use Phpactor\LanguageServer\Core\Server\ClientApi;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServerProtocol\Diagnostic as LspDiagnostic;
+use Phpactor\LanguageServerProtocol\Position;
+use Phpactor\LanguageServerProtocol\Range;
 use Phpactor\LanguageServerProtocol\TextDocumentItem;
+use XPHP\Lsp\Analyzer\Diagnostic;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
 use XPHP\Lsp\Reflection\FqnIndex;
@@ -115,10 +118,16 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
         // workspace pass, covering the current document plus every OTHER open
         // document. Documents that fail to parse contribute their syntax
         // diagnostics but are kept out of the workspace pass (unusable AST).
+        // Per-URI (version, source) so the workspace-diagnostics pass below can
+        // clamp its ranges against the same buffer the diagnostics were computed
+        // from (reusing the cached PositionMap).
+        $docMeta = [$currentUri => ['version' => $textDocument->version, 'source' => $textDocument->text]];
         $perFileByUri = [
-            $currentUri => array_map(
-                static fn ($d): LspDiagnostic => DiagnosticTranslator::toLsp($d),
+            $currentUri => $this->toLspClamped(
                 $currentResult->diagnostics,
+                $currentUri,
+                $textDocument->version,
+                $textDocument->text,
             ),
         ];
         $parsedFiles = [];
@@ -130,9 +139,12 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
                 continue;
             }
             $otherResult = $this->cache->getOrParse($uri, $item->version, $item->text);
-            $perFileByUri[$uri] = array_map(
-                static fn ($d): LspDiagnostic => DiagnosticTranslator::toLsp($d),
+            $docMeta[$uri] = ['version' => $item->version, 'source' => $item->text];
+            $perFileByUri[$uri] = $this->toLspClamped(
                 $otherResult->diagnostics,
+                $uri,
+                $item->version,
+                $item->text,
             );
             if ($otherResult->ast !== null) {
                 $parsedFiles[$uri] = ['ast' => $otherResult->ast, 'source' => $item->text];
@@ -176,14 +188,49 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
 
         $result = [];
         foreach ($perFileByUri as $uri => $perFile) {
-            $workspaceDiagnostics = array_map(
-                static fn ($d): LspDiagnostic => DiagnosticTranslator::toLsp($d),
+            $meta = $docMeta[$uri] ?? ['version' => 0, 'source' => ''];
+            $workspaceDiagnostics = $this->toLspClamped(
                 $workspaceByUri[$uri] ?? [],
+                $uri,
+                $meta['version'],
+                $meta['source'],
             );
             $result[$uri] = array_merge($perFile, $workspaceDiagnostics);
         }
 
         return $result;
+    }
+
+    /**
+     * Translate internal diagnostics to LSP-wire diagnostics, clamping every
+     * range into the document's bounds first. The server must never emit a range
+     * outside the buffer it analyzed: a strict LSP annotator (PhpStorm) throws
+     * `Range must be inside element being annotated` when an EOF-anchored
+     * diagnostic lands one character past end-of-document mid-edit. Uses the
+     * cached PositionMap so we don't re-scan the source.
+     *
+     * @param  list<Diagnostic> $diags
+     * @return list<LspDiagnostic>
+     */
+    private function toLspClamped(array $diags, string $uri, int $version, string $source): array
+    {
+        if ($diags === []) {
+            return [];
+        }
+        $positionMap = $this->cache->positionMap($uri, $version, $source);
+        $out = [];
+        foreach ($diags as $d) {
+            $lsp = DiagnosticTranslator::toLsp($d);
+            [$sl, $sc, $el, $ec] = $positionMap->clampRange(
+                $lsp->range->start->line,
+                $lsp->range->start->character,
+                $lsp->range->end->line,
+                $lsp->range->end->character,
+            );
+            $lsp->range = new Range(new Position($sl, $sc), new Position($el, $ec));
+            $out[] = $lsp;
+        }
+        return $out;
     }
 
     /**
