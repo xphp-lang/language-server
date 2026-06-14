@@ -1505,10 +1505,15 @@ final class GenericResolver
         if ($receiverType === null) {
             return null;
         }
-        $classLike = $classes->find($receiverType->ref->name);
-        if ($classLike === null) {
+        // findWithContext (not find) so we get the DECLARING file's use-map +
+        // namespace, needed to qualify a bare class name in the property type
+        // against the file where the property is declared -- incl. cross-namespace
+        // `use` imports.
+        $declaring = $classes->findWithContext($receiverType->ref->name);
+        if ($declaring === null) {
             return null;
         }
+        $classLike = $declaring->classLike;
         $propertyType = self::findPropertyType($classLike, $fetch->name->toString());
         if ($propertyType === null) {
             return null;
@@ -1529,8 +1534,8 @@ final class GenericResolver
         // fine for a terminal hover, but a chained access
         // (`$x?->bestFriend?->name`) needs the intermediate's class FQN so the
         // next hop can look the class up. Qualify it against the declaring
-        // class's namespace.
-        $substituted = self::qualifyAgainstNamespace($substituted, $receiverType->ref->name, $classes);
+        // file's use-map + namespace.
+        $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
         // A nullsafe access (`$x?->prop`) short-circuits to null when the
         // receiver is null, so the result is `<propType>|null` regardless of
         // the property's own declared nullability. A regular `->` does NOT
@@ -1542,13 +1547,13 @@ final class GenericResolver
     /**
      * A bare (non-scalar, non-type-param) class name in a member type --
      * `?User` -- comes back unqualified because the resolver runs no
-     * NameResolver. Qualify it against the DECLARING class's namespace,
-     * accepting the candidate ONLY when the lookup confirms it exists. An
-     * unconfirmable name (e.g. a cross-namespace `use` import we can't see
-     * here) is left bare, so a chain degrades to null rather than fabricating
-     * a wrong FQN.
+     * NameResolver. Qualify it against the DECLARING file's name-resolution
+     * context (use-map + namespace), so a cross-namespace `use App\Models\User`
+     * resolves correctly and not just same-namespace references. Accept the
+     * candidate ONLY when the lookup confirms it exists -- an unconfirmable name
+     * is left bare so a chain degrades to null rather than fabricating a wrong FQN.
      */
-    private static function qualifyAgainstNamespace(TypeRef $ref, string $declaringFqn, ClassLikeLookup $classes): TypeRef
+    private static function qualifyTypeRef(TypeRef $ref, ClassLikeContext $declaring, ClassLikeLookup $classes): TypeRef
     {
         if ($ref->isScalar || $ref->isTypeParam) {
             return $ref;
@@ -1558,12 +1563,8 @@ final class GenericResolver
         if ($name === '' || str_contains($name, '\\') || $classes->find($name) !== null) {
             return $ref;
         }
-        $pos = strrpos($declaringFqn, '\\');
-        if ($pos === false) {
-            return $ref; // declaring class lives in the global namespace
-        }
-        $candidate = substr($declaringFqn, 0, $pos) . '\\' . $name;
-        if ($classes->find($candidate) === null) {
+        $candidate = self::resolveNameWithUseMap(new Name($name), $declaring->useMap, $declaring->namespace);
+        if ($candidate === null || $candidate === $name || $classes->find($candidate) === null) {
             return $ref; // can't confirm -- leave bare (safe degradation)
         }
         return new TypeRef($candidate, $ref->args, $ref->isScalar, $ref->isTypeParam);

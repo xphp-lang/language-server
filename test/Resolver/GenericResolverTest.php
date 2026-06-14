@@ -134,6 +134,51 @@ final class GenericResolverTest extends TestCase
         self::assertSame('?App\\Models\\User', $resolver->resolveVariable('/Use.xphp', 'bf', PHP_INT_MAX));
     }
 
+    public function testCrossNamespaceImportedPropertyTypeResolvesInChain(): void
+    {
+        // The intermediate property `profile` is typed with a class imported
+        // from ANOTHER namespace (`use App\Other\Profile`). Resolving the chain
+        // requires the DECLARING file's use-map, not just its namespace --
+        // same-namespace-only qualification would mis-resolve to
+        // `App\Models\Profile` (nonexistent) and the chain would collapse.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nuse App\\Other\\Profile;\nclass User {\n public ?Profile \$profile = null;\n}\n");
+        $this->open($workspace, '/Profile.xphp', "<?php\nnamespace App\\Other;\nclass Profile {\n public string \$bio = '';\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $bio = $users->first()?->profile?->bio;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'bio', PHP_INT_MAX));
+    }
+
+    public function testCrossNamespaceImportedPropertyTypeRendersQualifiedFqn(): void
+    {
+        // Terminal case: the imported intermediate type itself renders as its
+        // real cross-namespace FQN (App\Other\Profile), not App\Models\Profile.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nuse App\\Other\\Profile;\nclass User {\n public ?Profile \$profile = null;\n}\n");
+        $this->open($workspace, '/Profile.xphp', "<?php\nnamespace App\\Other;\nclass Profile {}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $p = $users->first()?->profile;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?App\\Other\\Profile', $resolver->resolveVariable('/Use.xphp', 'p', PHP_INT_MAX));
+    }
+
     public function testTripleHopNullsafePropertyChainResolves(): void
     {
         // Three hops past the method call -- proves the recursion isn't
