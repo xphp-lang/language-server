@@ -20,6 +20,7 @@ use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
 use XPHP\Lsp\Diagnostics\XphpDiagnosticsProvider;
 use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 use function Amp\Promise\wait;
 
@@ -30,6 +31,8 @@ use function Amp\Promise\wait;
  */
 final class XphpDiagnosticsProviderTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
     public function testCleanSingleDocumentReturnsNoDiagnostics(): void
     {
         $workspace = new PhpactorWorkspace();
@@ -136,6 +139,32 @@ final class XphpDiagnosticsProviderTest extends TestCase
             self::assertCount(1, $diagnostics, "duplicate must surface when pulling {$doc->uri}");
             self::assertSame('xphp.definition', $diagnostics[0]->code);
             self::assertStringContainsString('already declared', $diagnostics[0]->message);
+        }
+    }
+
+    public function testOutOfBoundsRangeIsClampedInEmittedLspDiagnostic(): void
+    {
+        // End-to-end wire proof for the PhpStorm "Range must be inside element"
+        // crash: an unterminated block comment yields an EOF-anchored syntax
+        // error whose raw end column lands one past EOL. The emitted LSP range
+        // must be clamped into the document.
+        $workspace = new PhpactorWorkspace();
+        $source = "<?php\n/* unterminated";
+        $doc = $this->openDoc($workspace, '/Broken.xphp', $source);
+
+        $diagnostics = $this->lint($workspace, $doc);
+
+        self::assertNotEmpty($diagnostics);
+        foreach ($diagnostics as $d) {
+            self::assertInstanceOf(LspDiagnostic::class, $d);
+            self::assertRangeWithinDocument(
+                $source,
+                $d->range->start->line,
+                $d->range->start->character,
+                $d->range->end->line,
+                $d->range->end->character,
+                $d->message,
+            );
         }
     }
 

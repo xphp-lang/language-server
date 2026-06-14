@@ -445,4 +445,87 @@ final class PositionMapTest extends TestCase
         self::assertSame([1, 0], $map->offsetToPosition(1));
         self::assertSame([2, 0], $map->offsetToPosition(2));
     }
+
+    // =====================================================================
+    // clampPosition / clampRange — keep emitted ranges inside the document
+    // =====================================================================
+
+    public function testClampPositionInBoundsIsUnchanged(): void
+    {
+        $map = new PositionMap("hello\nworld");
+        self::assertSame([1, 2], $map->clampPosition(1, 2));
+    }
+
+    public function testClampPositionLinePastLastLineClampsToLastLine(): void
+    {
+        $map = new PositionMap("a\nbc");
+        // Line 99 doesn't exist; clamp to last line (1), char clamps to its length (2).
+        self::assertSame([1, 2], $map->clampPosition(99, 99));
+    }
+
+    public function testClampPositionCharacterPastEolClampsToLineLength(): void
+    {
+        $map = new PositionMap("hello\nworld");
+        self::assertSame([0, 5], $map->clampPosition(0, 99));
+    }
+
+    public function testClampPositionNegativesClampToZero(): void
+    {
+        $map = new PositionMap("hello");
+        self::assertSame([0, 0], $map->clampPosition(-3, -7));
+    }
+
+    public function testClampPositionMultibyteLineUsesUtf16Length(): void
+    {
+        // "héllo" is 5 UTF-16 code units but 6 bytes (é is 2 bytes in UTF-8).
+        // The max valid character is the UTF-16 length, 5 — not the byte length.
+        $map = new PositionMap("h\u{00e9}llo");
+        self::assertSame([0, 5], $map->clampPosition(0, 99));
+    }
+
+    public function testClampPositionEmojiLineCountsSurrogatePair(): void
+    {
+        // "😀" is one supplementary-plane scalar = 2 UTF-16 code units.
+        $map = new PositionMap("\u{1F600}");
+        self::assertSame([0, 2], $map->clampPosition(0, 99));
+    }
+
+    public function testClampRangeEofOvershootClampsToLineEnd(): void
+    {
+        // Miniature of the reported PhpStorm bug: a single 5-char line whose
+        // diagnostic end lands one past EOL (char 6) clamps back to 5.
+        $map = new PositionMap("hello");
+        self::assertSame([0, 0, 0, 5], $map->clampRange(0, 0, 0, 6));
+    }
+
+    public function testClampRangeNormalizesInvertedRange(): void
+    {
+        // End before start collapses to a zero-width range at the start.
+        $map = new PositionMap("hello\nworld");
+        self::assertSame([0, 4, 0, 4], $map->clampRange(0, 4, 0, 2));
+    }
+
+    public function testClampRangeInBoundsIsUnchanged(): void
+    {
+        $map = new PositionMap("hello\nworld");
+        self::assertSame([0, 1, 1, 3], $map->clampRange(0, 1, 1, 3));
+    }
+
+    // =====================================================================
+    // characterization: offsetToPosition / rangeFromOffsets self-clamp past EOF
+    // (locks the substr-truncation behavior a refactor must not regress)
+    // =====================================================================
+
+    public function testOffsetToPositionPastStrlenClampsToDocumentEnd(): void
+    {
+        $map = new PositionMap("a\nbc"); // strlen 4, last line "bc" (len 2)
+        // An offset well past EOF resolves to the last line at its end, no throw.
+        self::assertSame([1, 2], $map->offsetToPosition(50));
+    }
+
+    public function testRangeFromOffsetsEndBytePastStrlenClampsToDocumentEnd(): void
+    {
+        $map = new PositionMap("a\nbc");
+        self::assertSame([0, 0, 1, 2], $map->rangeFromOffsets(0, 50));
+    }
 }

@@ -136,6 +136,26 @@ final class ValidateContext implements Context
     }
 
     /**
+     * @Then every reported diagnostic range is within document bounds
+     */
+    public function everyDiagnosticRangeIsWithinDocumentBounds(): void
+    {
+        foreach ($this->diagnosticItems() as $diagnostic) {
+            $this->world->assert(
+                $this->world->rangeWithinDocument($this->analyzedPath, $diagnostic->range),
+                sprintf(
+                    'diagnostic range out of document bounds (%d:%d-%d:%d): %s',
+                    $diagnostic->range->start->line,
+                    $diagnostic->range->start->character,
+                    $diagnostic->range->end->line,
+                    $diagnostic->range->end->character,
+                    $diagnostic->message ?? '',
+                ),
+            );
+        }
+    }
+
+    /**
      * @Then no diagnostics are reported
      */
     public function noDiagnosticsAreReported(): void

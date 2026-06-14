@@ -9,10 +9,13 @@ use PHPUnit\Framework\TestCase;
 use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\DiagnosticCode;
 use XPHP\Lsp\Analyzer\DiagnosticSeverity;
+use XPHP\Lsp\Test\Support\AssertsRangeWithinDocument;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 
 final class AnalyzerTest extends TestCase
 {
+    use AssertsRangeWithinDocument;
+
     public function testCleanFileReturnsAstAndNoDiagnostics(): void
     {
         $analyzer = self::buildAnalyzer();
@@ -264,6 +267,44 @@ final class AnalyzerTest extends TestCase
             fn ($d) => $d->code === DiagnosticCode::UndefinedName,
         ));
         self::assertCount(2, $undef);
+    }
+
+    /**
+     * Invariant: NO diagnostic may carry a range outside the document it was
+     * computed from. Regression lock for the PhpStorm crash where an
+     * EOF-anchored "unexpected EOF" / unterminated-comment error produced an
+     * endCharacter one past end-of-line (nikic reports `endColumn ==
+     * lineLength + 1` at EOF). Before the clamp in `buildParseErrorDiagnostic`,
+     * the unterminated-comment and bare-`<?php` cases below fail this.
+     *
+     * @dataProvider malformedSourceProvider
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedSourceProvider')]
+    public function testEveryDiagnosticRangeStaysWithinDocumentBounds(string $source): void
+    {
+        $result = self::buildAnalyzer()->analyzeFile($source);
+        // Must actually exercise the diagnostics path, else the invariant is vacuous.
+        self::assertNotSame([], $result->diagnostics, 'expected at least one diagnostic for malformed source');
+        foreach ($result->diagnostics as $i => $d) {
+            self::assertRangeWithinDocument(
+                $source,
+                $d->startLine,
+                $d->startCharacter,
+                $d->endLine,
+                $d->endCharacter,
+                sprintf('diagnostic #%d (%s)', $i, $d->message),
+            );
+        }
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function malformedSourceProvider(): iterable
+    {
+        yield 'unterminated string' => ['<?php $x = "abc'];
+        yield 'unterminated block comment' => ['<?php /* x'];
+        yield 'trailing arrow at EOF' => ["<?php\n\$x->"];
+        yield 'incomplete turbofish' => ['<?php new Box::<'];
+        yield 'unterminated comment after multibyte line' => ["<?php // h\u{00e9}llo\n/* x"];
     }
 
     private static function buildAnalyzer(): Analyzer

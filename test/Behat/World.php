@@ -236,6 +236,27 @@ final class World
     }
 
     /**
+     * True iff the LSP range sits inside the document `$uri`. Detects overshoot
+     * via {@see PositionMap::clampRange}: a range that clamping leaves unchanged
+     * is in-bounds. (Note: {@see textForRange} cannot be used for this — its
+     * `positionToOffset` silently clamps past-EOL, masking out-of-bounds ranges.)
+     */
+    public function rangeWithinDocument(string $uri, object $range): bool
+    {
+        $map = new PositionMap($this->sourceFor($uri));
+        [$sl, $sc, $el, $ec] = $map->clampRange(
+            $range->start->line,
+            $range->start->character,
+            $range->end->line,
+            $range->end->character,
+        );
+        return $sl === $range->start->line
+            && $sc === $range->start->character
+            && $el === $range->end->line
+            && $ec === $range->end->character;
+    }
+
+    /**
      * Decode the delta-encoded semantic-token stream into absolute tokens,
      * slicing the source for each token's text and mapping its type index.
      *

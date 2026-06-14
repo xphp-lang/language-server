@@ -594,6 +594,50 @@ final class GenericResolver
     }
 
     /**
+     * Resolve the substituted concrete type of the property access at
+     * `$byteOffset`, rendered (e.g. `App\Containers\Pair<App\Models\Plastic,
+     * App\Models\User>`).  This is the member-hover parallel of the
+     * assignment-tracking path: where `resolvePropertyReceiverClassAt` answers
+     * "which class hosts this property", this answers "what concrete type does
+     * the property have once the receiver's type-args are substituted in" --
+     * so hovering `$pair->first` shows the substituted type instead of the
+     * declared type-param `A`.
+     *
+     * Returns null when the cursor isn't on a property-name token, the
+     * receiver isn't a tracked generic instantiation, or the property type
+     * isn't a shape we can model (union / intersection -- caller falls back
+     * to the unsubstituted render).
+     */
+    public function resolvePropertyTypeAt(string $uri, int $byteOffset): ?string
+    {
+        if (!$this->workspace->has($uri)) {
+            return null;
+        }
+        $item = $this->workspace->get($uri);
+        $scopes = $this->scopesFor($uri, $item->version, $item->text);
+        $bindings = self::bindingsAt($scopes, $byteOffset);
+
+        $result = $this->documents->getOrParse($uri, $item->version, $item->text);
+        if ($result->ast === null) {
+            return null;
+        }
+        $fetch = self::findEnclosingPropertyFetchNameAt($result->ast, $byteOffset);
+        if ($fetch === null) {
+            return null;
+        }
+        [$useMap, $namespace] = self::useMapAndNamespaceFor($result->ast);
+        $resolved = self::resolvePropertyFetch(
+            $fetch,
+            $bindings,
+            $this->classes,
+            $this->fqnIndex,
+            $useMap,
+            $namespace,
+        );
+        return $resolved?->render();
+    }
+
+    /**
      * Walk the AST looking for a `PropertyFetch` or `NullsafePropertyFetch`
      * whose property-name identifier covers `$byteOffset`.  The cursor
      * must land ON the name token; landing on the receiver expression

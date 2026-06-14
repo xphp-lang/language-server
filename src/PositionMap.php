@@ -163,10 +163,64 @@ final readonly class PositionMap
         if ($line >= count($this->lineOffsets)) {
             return [$line, 0, $line, 0];
         }
+        return [$line, 0, $line, $this->lineUtf16Length($line)];
+    }
+
+    /**
+     * UTF-16 code-unit length of the visible content of a 0-based line (the
+     * terminating `\n` is excluded). `$line` MUST be a valid line index
+     * (`0 .. count($lineOffsets) - 1`); callers that may exceed the range
+     * should go through {@see clampPosition} first.
+     */
+    private function lineUtf16Length(int $line): int
+    {
         $lineStart = $this->lineOffsets[$line];
+        // For the last line there is no following entry; +1 here is consumed
+        // by the `- 1` below so the slice runs to end-of-source. For any other
+        // line the next entry sits just past that line's `\n`, so `- 1` drops
+        // the terminator and we measure visible content only.
         $nextLineStart = $this->lineOffsets[$line + 1] ?? strlen($this->source) + 1;
         $lineText = substr($this->source, $lineStart, $nextLineStart - $lineStart - 1);
-        return [$line, 0, $line, self::toLspCharacter($lineText)];
+        return self::toLspCharacter($lineText);
+    }
+
+    /**
+     * Clamp an LSP {line, character} into this document's bounds: line into
+     * `[0, lastLine]` and character into `[0, lineLength]` (lengths in UTF-16
+     * code units, the LSP unit). An already-in-bounds position is returned
+     * unchanged.
+     *
+     * Diagnostic ranges built from parser column info can land one past EOL at
+     * EOF (nikic reports `endColumn == lineLength + 1` for an EOF-anchored
+     * error); some strict clients (PhpStorm's LSP annotator) throw when asked
+     * to render a range outside the document. Clamping here guarantees the
+     * server never emits an out-of-buffer range.
+     *
+     * @return array{0: int, 1: int} [line, character]
+     */
+    public function clampPosition(int $line, int $character): array
+    {
+        $lastLine = count($this->lineOffsets) - 1;
+        $line = max(0, min($line, $lastLine));
+        $character = max(0, min($character, $this->lineUtf16Length($line)));
+        return [$line, $character];
+    }
+
+    /**
+     * Clamp both endpoints of an LSP range into this document's bounds via
+     * {@see clampPosition}, then normalise so the end never precedes the start
+     * (an inverted range collapses to a zero-width range at the start).
+     *
+     * @return array{0: int, 1: int, 2: int, 3: int} [startLine, startChar, endLine, endChar]
+     */
+    public function clampRange(int $startLine, int $startCharacter, int $endLine, int $endCharacter): array
+    {
+        [$sl, $sc] = $this->clampPosition($startLine, $startCharacter);
+        [$el, $ec] = $this->clampPosition($endLine, $endCharacter);
+        if ($el < $sl || ($el === $sl && $ec < $sc)) {
+            [$el, $ec] = [$sl, $sc];
+        }
+        return [$sl, $sc, $el, $ec];
     }
 
     /**
