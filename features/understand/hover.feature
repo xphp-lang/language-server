@@ -242,3 +242,35 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "friendName" at line 4 of "/Use.xphp"
     Then the hover contents contain "?string $friendName"
+
+  Scenario: A chain through a non-generic method resolves
+    Given the file at "/Collection.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Containers;
+      class Collection<T>
+      {
+          public function first(): ?T { return null; }
+      }
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class User
+      {
+          public string $name = '';
+          public function mirror(): ?User { return null; }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Containers\Collection;
+      use App\Models\User;
+      $users = new Collection::<User>();
+      $picked = $users->first()?->mirror()?->name;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "picked" at line 4 of "/Use.xphp"
+    Then the hover contents contain "?string $picked"

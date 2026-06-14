@@ -134,6 +134,49 @@ final class GenericResolverTest extends TestCase
         self::assertSame('?App\\Models\\User', $resolver->resolveVariable('/Use.xphp', 'bf', PHP_INT_MAX));
     }
 
+    public function testNonGenericMethodMidChainResolves(): void
+    {
+        // Gap 2: `$users->first()?->self()?->name` where `self(): ?User` is a
+        // plain method on the non-generic `User`. Previously resolveMethodCall
+        // bailed on a non-generic receiver (empty paramMap) and the chain died;
+        // now it owns a confirmable-class return so the chain continues.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public string \$name = '';\n public function self(): ?User { return null; }\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $n = $users->first()?->self()?->name;
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 'n', PHP_INT_MAX));
+    }
+
+    public function testNonGenericScalarMethodCallDefersToWorseReflection(): void
+    {
+        // Gate: a non-generic method returning a SCALAR is NOT owned by the
+        // resolver (returns null) -- worse-reflection keeps its richer view of
+        // plain method returns. Locks the conservative Gap-2 gate.
+        $workspace = $this->workspace();
+        $this->openCollection($workspace, returnType: '?T');
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {\n public function getName(): string { return ''; }\n}\n");
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Containers\Collection;
+        use App\Models\User;
+        $users = new Collection::<User>();
+        $g = $users->first()?->getName();
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertNull($resolver->resolveVariable('/Use.xphp', 'g', PHP_INT_MAX));
+    }
+
     public function testCrossNamespaceImportedPropertyTypeResolvesInChain(): void
     {
         // The intermediate property `profile` is typed with a class imported

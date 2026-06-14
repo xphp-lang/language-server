@@ -1426,10 +1426,13 @@ final class GenericResolver
         if ($receiverType === null) {
             return null;
         }
-        $classLike = $classes->find($receiverType->ref->name);
-        if ($classLike === null) {
+        // findWithContext (not find) so a bare class name in the return type
+        // can be qualified against the method's DECLARING file (W1/W2).
+        $declaring = $classes->findWithContext($receiverType->ref->name);
+        if ($declaring === null) {
             return null;
         }
+        $classLike = $declaring->classLike;
         $method = self::findMethod($classLike, $call->name->toString());
         if ($method === null) {
             return null;
@@ -1438,28 +1441,39 @@ final class GenericResolver
         if ($returnType === null) {
             return null;
         }
-        // Rebuild paramMap from the receiver's TypeRef args (set during
-        // `resolvedTypeFromBinding` or by a prior chained call's
-        // substituted output).  When the receiver has no args -- e.g.
-        // an unconstrained or already fully-substituted scalar -- the
-        // method's own substitution is a no-op, which is correct.
+        // Rebuild paramMap from the receiver's TypeRef args. Empty for a plain
+        // method on a non-generic receiver -- substitution is then a no-op.
         $paramMap = self::paramMapFromReceiver($classLike, $receiverType);
         $paramMap = self::withMethodTurbofish($paramMap, $call, $method);
-        // No type params in scope = nothing generic to substitute (a plain
-        // method on a non-generic receiver).  Return null so the result isn't
-        // recorded as a binding and worse-reflection keeps ownership of it.
-        if ($paramMap === []) {
-            return null;
-        }
+        $isGeneric = $paramMap !== [];
         $paramNames = array_keys($paramMap);
 
         [$nullable, $ref] = self::returnTypeToRef($returnType, $paramNames) ?? [null, null];
         if ($ref === null) {
             return null;
         }
-        // `static`/`self` bind to the receiver's concrete type, not a param.
-        $substituted = self::relativeTypeToReceiver($ref, $receiverType)
-            ?? Specializer::substituteTypeRef($ref, $paramMap);
+        // `static`/`self`/`parent` bind to the receiver's concrete type.
+        $relative = self::relativeTypeToReceiver($ref, $receiverType);
+        $substituted = $relative
+            ?? ($isGeneric ? Specializer::substituteTypeRef($ref, $paramMap) : $ref);
+        $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
+
+        // Gap 2: a non-generic method used to bail to null (defer to
+        // worse-reflection). Now we OWN it -- so chains continue
+        // (`$users->first()?->self()?->name`) -- but ONLY when the result is a
+        // usable receiver: a relative type, or a class the lookup confirms.
+        // Scalars / unconfirmable names still return null so terminal hovers
+        // and single non-generic calls keep worse-reflection's richer view.
+        if (!$isGeneric && $relative === null) {
+            $confirmable = !$substituted->isScalar
+                && !$substituted->isTypeParam
+                && $substituted->name !== ''
+                && $classes->find(ltrim($substituted->name, '\\')) !== null;
+            if (!$confirmable) {
+                return null;
+            }
+        }
+
         // A nullsafe call (`$x?->method()`) short-circuits to null when the
         // receiver is null, so the result is nullable on top of the method's
         // own return-type nullability.
