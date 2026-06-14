@@ -707,10 +707,10 @@ final class GenericResolver
      *
      * @param list<Node\Stmt> $ast
      */
-    private static function findEnclosingMethodCallNameAt(array $ast, int $byteOffset): ?MethodCall
+    private static function findEnclosingMethodCallNameAt(array $ast, int $byteOffset): MethodCall|NullsafeMethodCall|null
     {
         $visitor = new class($byteOffset) extends NodeVisitorAbstract {
-            public ?MethodCall $hit = null;
+            public MethodCall|NullsafeMethodCall|null $hit = null;
 
             public function __construct(private readonly int $offset)
             {
@@ -721,7 +721,7 @@ final class GenericResolver
                 if ($this->hit !== null) {
                     return null;
                 }
-                if (!$node instanceof MethodCall) {
+                if (!$node instanceof MethodCall && !$node instanceof NullsafeMethodCall) {
                     return null;
                 }
                 $name = $node->name;
