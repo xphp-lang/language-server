@@ -103,3 +103,82 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "fresh" at line 3 of "/Use.xphp"
     Then the hover contents contain "fresh(int $v): App\Builder<int>"
+
+  Scenario: Hover over a generic property substitutes the type parameter
+    Given the file at "/Plastic.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Plastic {}
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class User {}
+      """
+    And the file at "/Pair.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Pair<A, B>
+      {
+          public function __construct(public A $first, public B $second) {}
+          public function swap(): Pair<B, A> { return new Pair::<B, A>($this->second, $this->first); }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Pair;
+      use App\Plastic;
+      use App\User;
+      $pair = new Pair::<Plastic, User>(new Plastic(), new User());
+      echo $pair->first;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "first" at line 5 of "/Use.xphp"
+    Then the hover contents contain "App\Plastic $first"
+
+  Scenario: Hover over a property through a chained generic method call substitutes the type parameter
+    Given the file at "/Plastic.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Plastic {}
+      """
+    And the file at "/User.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class User {}
+      """
+    And the file at "/Map.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Map<K, V> {}
+      """
+    And the file at "/Pair.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Pair<A, B>
+      {
+          public function __construct(public A $first, public B $second) {}
+          public function swap(): Pair<B, A> { return new Pair::<B, A>($this->second, $this->first); }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Map;
+      use App\Pair;
+      use App\Plastic;
+      use App\User;
+      $nested = new Pair::<Map<string, int>, Pair<Plastic, User>>(new Map(), new Pair::<Plastic, User>(new Plastic(), new User()));
+      echo $nested->swap()->first;
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "first" at line 6 of "/Use.xphp"
+    Then the hover contents contain "Pair<App\Plastic, App\User> $first"
