@@ -35,6 +35,7 @@ use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Reflection\FqnIndex;
 use XPHP\Transpiler\Monomorphize\Specializer;
+use XPHP\Transpiler\Monomorphize\Substitution;
 use XPHP\Transpiler\Monomorphize\TypeParam;
 use XPHP\Transpiler\Monomorphize\TypeRef;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -336,7 +337,7 @@ final class GenericResolver
             if ($tuple !== null) {
                 [$nullable, $ref] = $tuple;
                 $substituted = self::relativeTypeToReceiver($ref, $receiverType)
-                    ?? Specializer::substituteTypeRef($ref, $paramMap);
+                    ?? Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
                 $returnTypeRendered = (new ResolvedType($substituted, $nullable))->render();
             }
         }
@@ -358,7 +359,7 @@ final class GenericResolver
                 continue;
             }
             [$nullable, $ref] = $tuple;
-            $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+            $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
             $paramTypes[$name] = (new ResolvedType($substituted, $nullable))->render();
         }
 
@@ -904,7 +905,7 @@ final class GenericResolver
             $tuple = self::returnTypeToRef($method->returnType, $paramNames);
             if ($tuple !== null) {
                 [$nullable, $ref] = $tuple;
-                $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+                $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
                 $returnTypeRendered = (new ResolvedType($substituted, $nullable))->render();
             }
         }
@@ -921,7 +922,7 @@ final class GenericResolver
                 continue;
             }
             [$nullable, $ref] = $tuple;
-            $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+            $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
             $paramTypes[$name] = (new ResolvedType($substituted, $nullable))->render();
         }
         return new MethodCallSubstitution($returnTypeRendered, $paramTypes);
@@ -1564,7 +1565,7 @@ final class GenericResolver
         // `static`/`self`/`parent` bind to the receiver's concrete type.
         $relative = self::relativeTypeToReceiver($ref, $receiverType);
         $substituted = $relative
-            ?? ($isGeneric ? Specializer::substituteTypeRef($ref, $paramMap) : $ref);
+            ?? ($isGeneric ? Specializer::substituteTypeRef($ref, Substitution::of($paramMap)) : $ref);
         $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
 
         // Gap 2: a non-generic method used to bail to null (defer to
@@ -1651,7 +1652,7 @@ final class GenericResolver
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
         // A property typed as a bare class name (`?User`) resolves to an
         // UNqualified TypeRef (the resolver runs no NameResolver). That renders
         // fine for a terminal hover, but a chained access
@@ -1878,7 +1879,7 @@ final class GenericResolver
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
         return new ResolvedType($substituted, $nullable);
     }
 
@@ -1956,7 +1957,7 @@ final class GenericResolver
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
         return new ResolvedType($substituted, $nullable);
     }
 
