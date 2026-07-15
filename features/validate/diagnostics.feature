@@ -104,7 +104,7 @@ Feature: Diagnostics
       """
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
-    Then a "xphp.bound" diagnostic is reported saying "no default"
+    Then a "xphp.missing_type_argument" diagnostic is reported saying "no default"
 
   Scenario: Report a constructor argument-type mismatch
     Given the file at "/StringableBox.xphp" contains the following lines:
