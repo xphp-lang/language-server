@@ -109,20 +109,76 @@ enum DiagnosticCode: string
      */
     case NullDeref = 'xphp.null-deref';
 
+    // ---------------------------------------------------------------------
+    // xphp 0.3.0 generic-validation codes.
+    //
+    // The compiler's 0.3.0 `check` gate introduced a structured diagnostic
+    // vocabulary. The LSP keeps computing diagnostics IN-PROCESS (it does not
+    // shell out to `xphp check`), so a code is only *emitted* today if its
+    // error reaches us as a `RuntimeException` from `Registry::recordInstantiation`
+    // with no diagnostics-collector set. Verified against the vendor Registry:
+    // only the two codes marked "(in-process)" below are actually emitted today
+    // (too-many / missing type arguments). The rest are part of the vocabulary
+    // for editor pattern-matching but only surface once the compiler's optional
+    // diagnostics sink is wired in — a `Registry` built with a collector routes
+    // variance-unprovable / bound-default / undefined-template through *appended*
+    // diagnostics rather than throws (see DEFERRED).
+    // ---------------------------------------------------------------------
+
+    /** Too many type arguments for a generic template's parameter list. (in-process) */
+    case TooManyTypeArguments = 'xphp.too_many_type_arguments';
+
+    /** A required (no-default) type parameter was left unsupplied. (in-process) */
+    case MissingTypeArgument = 'xphp.missing_type_argument';
+
+    /** A member names a type that is not declared/imported (compiler `UndeclaredTypeParameterValidator`). Sink-only. */
+    case UndeclaredType = 'xphp.undeclared_type';
+
+    /** A variance edge could not be proven while instantiating a variant generic. Sink-only. */
+    case BoundUnprovable = 'xphp.bound_unprovable';
+
+    /** A `Closure(...)` signature type failed conformance (params/return/by-ref/arity). */
+    case ClosureConformance = 'xphp.closure_conformance';
+
+    /** A generic closure/arrow could not be specialized. */
+    case UnspecializedGenericClosure = 'xphp.unspecialized_generic_closure';
+
+    /** A generic call could not be resolved (e.g. turbofish-less generic call). */
+    case UnresolvedGenericCall = 'xphp.unresolved_generic_call';
+
+    /** A dynamically-named turbofish receiver could not be determined statically. */
+    case UndeterminedReceiver = 'xphp.undetermined_receiver';
+
     /**
      * Map a RuntimeException raised by Registry::recordInstantiation to its
-     * diagnostic code. The Registry doesn't (currently) use a typed exception
-     * hierarchy, so we triage by the error message's leading phrase. The
-     * Registry's error builders (Registry::collisionMessage,
-     * Registry::validateBounds) use stable prefixes documented in their
-     * docblocks — if those phrasings shift, this triage breaks and the bound
-     * fallback kicks in.
+     * diagnostic code. The Registry doesn't use a typed exception hierarchy, so
+     * we triage by a stable distinctive phrase in the message. 0.3.0 embeds the
+     * (dynamic) template name near the start of most messages, so we match on
+     * interior phrases with `str_contains` rather than a leading prefix. If a
+     * builder's phrasing shifts, that code is lost and the bound fallback kicks
+     * in — each phrase is locked by a unit test (`DiagnosticCodeTest`).
+     *
+     * Only the builders that `recordInstantiation` actually THROWS (with no
+     * diagnostics-collector set, which is how `WorkspaceAnalyzer` builds the
+     * Registry) are triaged here — verified against vendor `Registry.php`:
+     * collisionMessage (:170), tooManyTypeArgumentsMessage (:350),
+     * missingTypeArgumentMessage (:370), boundViolationMessage (:819), and
+     * defaultBoundViolationMessage (:484, → bound). The variance-unprovable and
+     * undefined-template messages are appended to a collector / thrown only on
+     * the Compiler path, so they never reach this catch and are not triaged.
      */
     public static function fromRegistryRecordInstantiationException(RuntimeException $e): self
     {
-        if (str_starts_with($e->getMessage(), 'Hash collision')) {
-            return self::HashCollision;
-        }
-        return self::BoundViolation;
+        $message = $e->getMessage();
+
+        return match (true) {
+            str_starts_with($message, 'Hash collision') => self::HashCollision,
+            str_contains($message, 'remove the extra argument') => self::TooManyTypeArguments,
+            str_contains($message, 'has no default; supply it') => self::MissingTypeArgument,
+            // "Generic bound violated while instantiating …" and "Default for
+            // generic parameter `…` … violates the parameter's bound" are both
+            // ordinary bound violations (the existing xphp.bound surface).
+            default => self::BoundViolation,
+        };
     }
 }
