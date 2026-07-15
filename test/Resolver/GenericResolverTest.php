@@ -613,6 +613,33 @@ final class GenericResolverTest extends TestCase
         self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
     }
 
+    public function testVariantClassTypeParamConstructorResolvesThroughGetter(): void
+    {
+        // xphp 0.3.0: a covariant class may take its type parameter in a
+        // constructor (`private T $item`), and a covariant getter returns T.
+        // Variance is orthogonal to substitution, so `new Producer::<int>(5)`
+        // then `->get()` resolves to int exactly as an invariant generic would.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Producer.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Producer<out T> {
+            public function __construct(private T $item) {}
+            public function get(): T { return $this->item; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Producer;
+        $p = new Producer::<int>(5);
+        $x = $p->get();
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'x', PHP_INT_MAX));
+    }
+
     public function testRelativeStaticReturnResolvesToReceiverType(): void
     {
         // Regression for the `generic_method_new_static_turbofish` fixture:
