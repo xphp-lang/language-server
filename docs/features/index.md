@@ -252,10 +252,10 @@ as type parameters.
 ## Validate
 
 Diagnostics surface in both push (`textDocument/publishDiagnostics`)
-and pull (`textDocument/diagnostic`, LSP 3.17) modes. Six diagnostic
+and pull (`textDocument/diagnostic`, LSP 3.17) modes. Seven diagnostic
 codes are emitted today: `xphp.parse`, `xphp.bound`, `xphp.definition`
 (duplicate template), `xphp.undefined-name`, `xphp.ctor-arg-mismatch`,
-and `xphp.arg-mismatch`.
+`xphp.arg-mismatch`, and `xphp.closure_conformance`.
 
 ### Parse errors
 
@@ -273,6 +273,17 @@ open buffers), so `new Box::<Tag>(...)` resolves correctly even when
 `Tag.xphp` isn't currently open in the editor. Error messages
 reference the source-level instantiation (e.g. `Box<int>`) rather
 than the hashed specialization name.
+
+### Closure signature conformance
+
+A factory whose declared return type is `Closure(...)` and that
+hands back a closure **literal** provably violating that target --
+a return type that isn't a subtype, a parameter type that isn't
+wider (contravariance), a wrong arity, or a by-ref mismatch -- is
+flagged with `xphp.closure_conformance`. The check itself is owned
+by the xphp compiler; the server surfaces it. Value flows where the
+candidate isn't a literal at the target (a variable, a call
+argument) stay gradual and are not flagged.
 
 ### Default type arguments (no false missing-arg)
 
@@ -341,6 +352,11 @@ Context-aware completion in every meaningful position:
   Composite bounds are respected: a candidate must satisfy **every**
   leaf of an intersection (`T : A & B`) and **any** leaf of a union
   (`T : A | B`).
+- **Closure-signature type position** (`function h(Closure(|): ...)`)
+  -- a type token inside a `Closure(int $x, string $y): bool`
+  signature (first param, after a `,`, or the return type after `:`)
+  offers class names and scalars, the same unbounded candidate set a
+  bound-free type-arg slot gets.
 - **Member access** (`$obj->`) and **static access** (`Cls::`) --
   methods, properties, and constants from the receiver.
 - **Static property access** (`Cls::$`) -- a distinct context kind

@@ -13,7 +13,9 @@ use RuntimeException;
 use XPHP\Lsp\Handler\TurbofishScanner;
 use XPHP\Lsp\PositionMap;
 use XPHP\Lsp\Resolver\BoundExprView;
+use XPHP\Diagnostics\DiagnosticCollector;
 use XPHP\Transpiler\Monomorphize\BoundUnion;
+use XPHP\Transpiler\Monomorphize\ClosureConformanceValidator;
 use XPHP\Transpiler\Monomorphize\Registry;
 use XPHP\Transpiler\Monomorphize\TypeHierarchy;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -158,6 +160,30 @@ final readonly class WorkspaceAnalyzer
             }
         }
 
+        // Fourth pass: closure-signature conformance. A factory whose declared
+        // return type is `Closure(...)` and that hands back a closure *literal*
+        // provably violating that target is flagged by the upstream
+        // ClosureConformanceValidator. We drive it in "collect" mode (a
+        // DiagnosticCollector) so every violation is gathered rather than the
+        // first one throwing, then map each onto an LSP diagnostic. In this
+        // non-grounded pass only the return position is statically decided; the
+        // call-argument site is gated behind the grounded per-specialization pass
+        // the LSP never runs. The check itself is upstream-owned (contravariant
+        // params / covariant return / arity / by-ref) -- we only surface it. The
+        // sibling `xphp.unspecialized_generic_closure` code is produced solely inside
+        // the specialization pipeline (GenericMethodCompiler), which the LSP never
+        // runs, so it stays sink-only (see DEFERRED).
+        foreach ($files as $path => $entry) {
+            $positionMap = new PositionMap($entry['source']);
+            $this->walkClosureConformance(
+                $entry['ast'],
+                $path,
+                $hierarchy,
+                $positionMap,
+                $diagnosticsByFile[$path],
+            );
+        }
+
         return $diagnosticsByFile;
     }
 
@@ -257,6 +283,52 @@ final readonly class WorkspaceAnalyzer
             [$sl, $sc, $el, $ec] = $positionMap->fullLineRangeFromNikic($fallbackNikicLine);
         }
         return new Diagnostic($sl, $sc, $el, $ec, $message, code: DiagnosticCode::Definition);
+    }
+
+    /**
+     * Run the upstream {@see ClosureConformanceValidator} over one file's AST in
+     * collect mode and map each `xphp.closure_conformance` violation onto an LSP
+     * diagnostic. The upstream diagnostic carries only a (newline-preserving)
+     * start line, so the squiggle spans the whole offending line -- the same
+     * fallback the bound-violation pass uses when byte offsets are absent.
+     *
+     * @param list<Node\Stmt>  $ast
+     * @param list<Diagnostic> $diagnostics
+     */
+    private function walkClosureConformance(
+        array $ast,
+        string $file,
+        TypeHierarchy $hierarchy,
+        PositionMap $positionMap,
+        array &$diagnostics,
+    ): void {
+        $collector = new DiagnosticCollector();
+        try {
+            (new ClosureConformanceValidator($hierarchy))->validateFile($ast, $file, $collector);
+        } catch (\Throwable) {
+            // Best-effort: the validator runs upstream code over a possibly
+            // half-typed buffer; a crash here must never suppress every other
+            // diagnostic for the file. Whatever was collected before the throw
+            // is still emitted below.
+        }
+        foreach ($collector->all() as $diag) {
+            if ($diag->code !== DiagnosticCode::ClosureConformance->value) {
+                continue;
+            }
+            $line = $diag->location?->line;
+            if ($line === null || $line < 1) {
+                continue;
+            }
+            [$sl, $sc, $el, $ec] = $positionMap->fullLineRangeFromNikic($line);
+            $diagnostics[] = new Diagnostic(
+                startLine: $sl,
+                startCharacter: $sc,
+                endLine: $el,
+                endCharacter: $ec,
+                message: $diag->message,
+                code: DiagnosticCode::ClosureConformance,
+            );
+        }
     }
 
     /**
