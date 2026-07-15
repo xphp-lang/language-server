@@ -82,6 +82,33 @@ Feature: Hover
     When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
     Then the hover contents contain "identity(string $x): string"
 
+  Scenario: Hover over an inherited generic method turbofish resolves through the base class
+    Given the file at "/Base.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Base
+      {
+          public function identity<T>(T $x): T { return $x; }
+      }
+      """
+    And the file at "/Child.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Child extends Base {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Child;
+      $c = new Child();
+      $s = $c->identity::<string>('world');
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
+    Then the hover contents contain "identity(string $x): string"
+
   Scenario: Hover over a method returning static resolves to the receiver's concrete type
     Given the file at "/Builder.xphp" contains the following lines:
       """

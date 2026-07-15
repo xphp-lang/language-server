@@ -309,17 +309,21 @@ final class GenericResolver
         if ($receiverType === null) {
             return null;
         }
-        $classLike = $this->classes->find($receiverType->ref->name);
-        if ($classLike === null) {
+        $declaring = $this->classes->findWithContext($receiverType->ref->name);
+        if ($declaring === null) {
             return null;
         }
+        $classLike = $declaring->classLike;
         if (!$call->name instanceof Identifier) {
             return null;
         }
-        $method = self::findMethod($classLike, $call->name->toString());
-        if ($method === null) {
+        // Walk the extends chain so an inherited generic method specializes on a
+        // subclass receiver (0.3.0 turbofish on a subclass).
+        $found = self::findMethodWithContext($declaring, $call->name->toString(), $this->classes);
+        if ($found === null) {
             return null;
         }
+        [$method] = $found;
         $paramMap = self::paramMapFromReceiver($classLike, $receiverType);
         $paramMap = self::withMethodTurbofish($paramMap, $call, $method);
         // No type params in scope = a plain method on a non-generic receiver;
@@ -1543,10 +1547,15 @@ final class GenericResolver
             return null;
         }
         $classLike = $declaring->classLike;
-        $method = self::findMethod($classLike, $call->name->toString());
-        if ($method === null) {
+        // Walk the extends chain so a generic method inherited from a base class
+        // resolves on a subclass receiver (0.3.0). `$methodContext` is the
+        // DECLARING class's context -- used to qualify the return type against
+        // the file that declared the method, not the subclass's file.
+        $found = self::findMethodWithContext($declaring, $call->name->toString(), $classes);
+        if ($found === null) {
             return null;
         }
+        [$method, $methodContext] = $found;
         $returnType = $method->returnType;
         if ($returnType === null) {
             return null;
@@ -1566,7 +1575,7 @@ final class GenericResolver
         $relative = self::relativeTypeToReceiver($ref, $receiverType);
         $substituted = $relative
             ?? ($isGeneric ? Specializer::substituteTypeRef($ref, Substitution::of($paramMap)) : $ref);
-        $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
+        $substituted = self::qualifyTypeRef($substituted, $methodContext, $classes);
 
         // Gap 2: a non-generic method used to bail to null (defer to
         // worse-reflection). Now we OWN it -- so chains continue
@@ -1967,6 +1976,51 @@ final class GenericResolver
             if (strcasecmp($method->name->toString(), $name) === 0) {
                 return $method;
             }
+        }
+        return null;
+    }
+
+    /**
+     * Find `$name` on the receiver's class, walking the `extends` chain when the
+     * receiver's own class doesn't declare it. xphp 0.3.0 allows a generic
+     * method inherited from a base class to be called with turbofish on a
+     * subclass receiver (`$child->m::<int>()`); the method's generic params live
+     * on the DECLARING class, so we return the `ClassMethod` together with that
+     * class's context (needed to qualify its return type against the file that
+     * declared it). Parent names are resolved against each class's own declaring
+     * context; a `seen` set guards against extends cycles.
+     *
+     * @return array{0: ClassMethod, 1: ClassLikeContext}|null
+     */
+    private static function findMethodWithContext(
+        ClassLikeContext $context,
+        string $name,
+        ClassLikeLookup $classes,
+    ): ?array {
+        $seen = [];
+        $current = $context;
+        while ($current !== null) {
+            $method = self::findMethod($current->classLike, $name);
+            if ($method !== null) {
+                return [$method, $current];
+            }
+            $class = $current->classLike;
+            if (!$class instanceof Node\Stmt\Class_ || $class->extends === null) {
+                return null;
+            }
+            $parent = $class->extends;
+            // A fully-qualified `extends \App\Base` is absolute; anything else
+            // (bare `Base`, namespace-relative `Sub\Base`, aliased `F\Base`) must
+            // be resolved against THIS class's own use-map + namespace, since an
+            // ancestor may live in a different file/namespace than the receiver.
+            $qualified = $parent instanceof Node\Name\FullyQualified
+                ? ltrim($parent->toString(), '\\')
+                : (self::resolveNameWithUseMap($parent, $current->useMap, $current->namespace) ?? ltrim($parent->toString(), '\\'));
+            if (isset($seen[$qualified])) {
+                return null;
+            }
+            $seen[$qualified] = true;
+            $current = $classes->findWithContext($qualified);
         }
         return null;
     }

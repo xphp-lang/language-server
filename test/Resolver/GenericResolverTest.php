@@ -492,6 +492,99 @@ final class GenericResolverTest extends TestCase
         self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
     }
 
+    public function testNullsafeMethodTurbofishSpecializesReturnType(): void
+    {
+        // xphp 0.3.0: a generic method called with turbofish through a NULLSAFE
+        // receiver (`$u?->identity::<int>(...)`). The method's T binds to the
+        // call-site type arg exactly as the plain `->` form; the `?->` operator
+        // then makes the specialized return nullable (`int` -> `?int`),
+        // consistent with the resolver's other nullsafe paths.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Util.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Util {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Util;
+        $u = new Util();
+        $i = $u?->identity::<int>(99);
+        $s = $u?->identity::<string>('world');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
+    public function testInheritedGenericMethodTurbofishOnSubclassReceiverSpecializes(): void
+    {
+        // xphp 0.3.0: a generic method DECLARED on a base class, called with
+        // turbofish on a SUBCLASS receiver (`$c->identity::<int>(...)`). The
+        // resolver must walk to the inherited declaration to find T, then bind
+        // it to the call-site type arg.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Base.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Base {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Child.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Child extends Base {}
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Child;
+        $c = new Child();
+        $i = $c->identity::<int>(99);
+        $s = $c->identity::<string>('world');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
+    public function testInheritedGenericMethodTurbofishAcrossNamespaceResolves(): void
+    {
+        // The base lives in a DIFFERENT namespace, imported via `use`. The
+        // extends-chain walk must qualify the parent name against the child's
+        // own use-map (not the receiver's), then find the inherited method.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Base.xphp', <<<'XPHP'
+        <?php
+        namespace App\Lib;
+        class Base {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Child.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        use App\Lib\Base;
+        class Child extends Base {}
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Child;
+        $c = new Child();
+        $i = $c->identity::<int>(99);
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+    }
+
     public function testRelativeStaticReturnResolvesToReceiverType(): void
     {
         // Regression for the `generic_method_new_static_turbofish` fixture:
