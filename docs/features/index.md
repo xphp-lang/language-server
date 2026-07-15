@@ -204,6 +204,10 @@ property / native function info, hover renders:
 - A type parameter's variance: `out T` (covariant) / `in T` (contravariant)
   are shown with their marker and a label; invariant params show the
   bare name.
+- A `Closure(int $x, string $y): bool` signature type in a parameter,
+  return, or property position, rendered as its structured form
+  (`Closure(int, string): bool`) -- params without names, nullable and
+  composite (union / intersection) members preserved.
 
 ### Signature Help
 

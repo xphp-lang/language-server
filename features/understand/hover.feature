@@ -360,3 +360,14 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "list" at line 3 of "/Use.xphp"
     Then the hover contents contain "list(string $x): string"
+
+  Scenario: Hover over a Closure signature type shows the structured signature
+    Given the file at "/Sig.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      function h(Closure(int $x, string $y): bool $cb): void {}
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "Closure" at line 2 of "/Sig.xphp"
+    Then the hover contents contain "Closure(int, string): bool"

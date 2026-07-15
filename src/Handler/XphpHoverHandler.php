@@ -21,7 +21,9 @@ use Phpactor\LanguageServerProtocol\MarkupKind;
 use Phpactor\LanguageServerProtocol\ServerCapabilities;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Resolver\BoundExprView;
+use XPHP\Lsp\Resolver\ClosureSignatureView;
 use XPHP\Lsp\Resolver\PhpHoverResolver;
+use XPHP\Transpiler\Monomorphize\ClosureSignature;
 use XPHP\Transpiler\Monomorphize\Registry;
 use XPHP\Transpiler\Monomorphize\TypeParam;
 use XPHP\Transpiler\Monomorphize\TypeRef;
@@ -173,6 +175,15 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
      */
     private function buildHoverMarkdown(\PhpParser\Node\Name $name, array $classScope): ?string
     {
+        // Case 0: hover over a `Closure(...)` signature type. xphp 0.3.0 stamps
+        // the structured signature on the `Closure` type node; it erases to a
+        // bare `\Closure` in emitted PHP, so worse-reflection would only show
+        // `\Closure` -- render the source-shaped signature instead.
+        $closureSig = $name->getAttribute(XphpSourceParser::ATTR_CLOSURE_SIG);
+        if ($closureSig instanceof ClosureSignature) {
+            return sprintf('**`%s`**', ClosureSignatureView::render($closureSig));
+        }
+
         $args = $name->getAttribute(XphpSourceParser::ATTR_GENERIC_ARGS);
         $templateFqn = $name->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
 
