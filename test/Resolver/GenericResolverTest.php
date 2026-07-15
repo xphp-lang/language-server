@@ -585,6 +585,34 @@ final class GenericResolverTest extends TestCase
         self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
     }
 
+    public function testKeywordNamedGenericMethodTurbofishSpecializes(): void
+    {
+        // xphp 0.3.0 lets a generic method be NAMED with a PHP keyword
+        // (`function list<T>()`), called as `$f->list::<int>(...)`. The parser
+        // stamps the generic attributes normally and the byte scanner is
+        // keyword-agnostic, so this should specialize like any other method.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Foo.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Foo {
+            public function list<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Foo;
+        $f = new Foo();
+        $i = $f->list::<int>(9);
+        $s = $f->list::<string>('x');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
     public function testRelativeStaticReturnResolvesToReceiverType(): void
     {
         // Regression for the `generic_method_new_static_turbofish` fixture:

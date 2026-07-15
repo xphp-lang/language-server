@@ -339,3 +339,24 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "profileBio" at line 4 of "/Use.xphp"
     Then the hover contents contain "?string $profileBio"
+
+  Scenario: Hover over a keyword-named generic method turbofish specializes
+    Given the file at "/Foo.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Foo
+      {
+          public function list<T>(T $x): T { return $x; }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Foo;
+      $f = new Foo();
+      $s = $f->list::<string>('x');
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "list" at line 3 of "/Use.xphp"
+    Then the hover contents contain "list(string $x): string"
