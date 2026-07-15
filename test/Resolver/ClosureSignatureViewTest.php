@@ -83,6 +83,15 @@ final class ClosureSignatureViewTest extends TestCase
         self::assertSame('Closure(\\App\\Box<int>): void', ClosureSignatureView::render($sig));
     }
 
+    public function testAlreadyQualifiedClassLeafIsNotDoublePrefixed(): void
+    {
+        // A TypeRef whose name already carries a leading `\` must render with a
+        // single backslash, not `\\App\Box` (the ltrim in renderTypeRef).
+        $ref = new SigTypeRef(new TypeRef('\\App\\Box', [], false, false));
+        $sig = new ClosureSignature([self::param($ref)], self::leaf('void'));
+        self::assertSame('Closure(\\App\\Box): void', ClosureSignatureView::render($sig));
+    }
+
     public function testUnionParam(): void
     {
         $union = new SigUnion([self::leaf('int'), self::leaf('string')]);

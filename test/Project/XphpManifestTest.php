@@ -191,6 +191,62 @@ final class XphpManifestTest extends TestCase
         self::assertSame(realpath($this->root . '/proj/xphp.json'), $manifest->path);
     }
 
+    public function testDiscoverConfigDirectoryWithTrailingSlashIsHandled(): void
+    {
+        $this->write('proj/xphp.json', (string) json_encode(['sources' => ['src']]));
+
+        // A trailing separator on the config dir must not double up when joined
+        // with the manifest filename.
+        $manifest = XphpManifest::discover($this->root, $this->root . '/proj/');
+
+        self::assertNotNull($manifest);
+        self::assertSame(realpath($this->root . '/proj/xphp.json'), $manifest->path);
+    }
+
+    public function testSourceRootWithSurroundingWhitespaceIsTrimmed(): void
+    {
+        $path = $this->write('xphp.json', (string) json_encode(['sources' => ['  lib  ']]));
+
+        $manifest = XphpManifest::fromFile($path);
+
+        self::assertNotNull($manifest);
+        // The padded entry resolves to `<base>/lib`, not `<base>/  lib  `.
+        self::assertSame([realpath($this->root) . '/lib'], $manifest->sourceRoots());
+    }
+
+    public function testWhitespaceOnlySourceRootResolvesToBaseDir(): void
+    {
+        $path = $this->write('xphp.json', (string) json_encode(['sources' => ['   ']]));
+
+        $manifest = XphpManifest::fromFile($path);
+
+        self::assertNotNull($manifest);
+        self::assertSame([realpath($this->root)], $manifest->sourceRoots());
+    }
+
+    public function testWindowsStyleAbsoluteSourceRootIsPassedThrough(): void
+    {
+        $abs = 'C:\\packages\\lib';
+        $path = $this->write('xphp.json', (string) json_encode(['sources' => [$abs]]));
+
+        $manifest = XphpManifest::fromFile($path);
+
+        self::assertNotNull($manifest);
+        // Recognised as absolute (drive-letter), so not re-based onto the manifest dir.
+        self::assertSame([$abs], $manifest->sourceRoots());
+    }
+
+    public function testOutputDirWithNestedRelativePathResolves(): void
+    {
+        $path = $this->write('xphp.json', (string) json_encode(['target' => 'build/out', 'cache' => 'tmp/gen']));
+
+        $manifest = XphpManifest::fromFile($path);
+
+        self::assertNotNull($manifest);
+        self::assertSame(realpath($this->root) . '/build/out', $manifest->outputDir());
+        self::assertSame(realpath($this->root) . '/tmp/gen', $manifest->cacheDir());
+    }
+
     private function removeTree(string $dir): void
     {
         if (!is_dir($dir)) {

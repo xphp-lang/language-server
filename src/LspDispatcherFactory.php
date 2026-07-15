@@ -69,6 +69,7 @@ use XPHP\Lsp\Handler\XphpPullDiagnosticsHandler;
 use XPHP\Lsp\Handler\XphpSemanticTokensHandler;
 use XPHP\Lsp\Handler\XphpTypeHierarchyHandler;
 use XPHP\Lsp\Handler\XphpWorkspaceSymbolHandler;
+use XPHP\Lsp\Project\XphpManifest;
 use XPHP\Lsp\Reflection\ReflectorFactory;
 use XPHP\Lsp\Reflection\FqnIndex;
 use XPHP\Lsp\Resolver\CompletionIndex;
@@ -132,11 +133,21 @@ final class LspDispatcherFactory implements DispatcherFactory
         // hands us as the project workspace root; an empty string => no
         // filesystem walking (workspace + stubs only).
         $rootPath = $initializeParams->rootPath ?? '';
+        // xphp 0.3.0 `xphp.json` manifest: when the workspace declares one, the
+        // FQN index walks the manifest's source roots (which may live outside
+        // `rootPath`) and prunes its build-output / generated-class-cache dirs
+        // so specialized PHP isn't indexed as source. Absent or malformed
+        // manifest -> null -> the single-`rootPath` walk (never hard-fail).
+        $manifest = $rootPath !== '' ? XphpManifest::discover($rootPath) : null;
+        $extraSourceRoots = $manifest?->sourceRoots() ?? [];
+        $excludedDirs = $manifest !== null
+            ? array_values(array_filter([$manifest->outputDir(), $manifest->cacheDir()]))
+            : [];
         // FqnIndex is the single workspace-wide FQN -> declaration map.
         // Replaces three parallel walks (FilesystemSourceLocator's private
         // map, WorkspaceSymbols' open-doc walk, WorkspaceClassLikeLookup's
         // open-doc walk).  Phase-0 of the LSP follow-up roadmap.
-        $fqnIndex = new FqnIndex($workspace, $cache, $xphpParser, $rootPath);
+        $fqnIndex = new FqnIndex($workspace, $cache, $xphpParser, $rootPath, $extraSourceRoots, $excludedDirs);
         $reflector = (new ReflectorFactory(
             $workspace,
             $cache,

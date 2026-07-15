@@ -400,6 +400,21 @@ under load, on cold start, and across editor sessions. Not LSP
 methods in their own right, but visible to users through editor
 responsiveness and reliability.
 
+### Project manifest (`xphp.json`) multi-root indexing
+
+When the workspace declares an xphp 0.3.0 `xphp.json` manifest, the
+FQN index resolves its source roots (auto-detected by walking up from
+the workspace root, or via an explicit config path) and walks them
+alongside the workspace root -- so declarations in a source root that
+lives outside the editor's root still resolve for go-to-definition,
+hover, and completion. The manifest's build-output and
+generated-class-cache directories are pruned from the walk, so the
+specialized PHP the compiler emits is never indexed as source (and
+never shadows the `.xphp` original). A file reachable through more
+than one root is indexed once. An absent or malformed manifest falls
+back to the single workspace root -- the server never hard-fails on a
+bad manifest.
+
 ### AST cache (warmed on Initialize)
 
 On the LSP `initialize` handshake, a background warmer parses every
