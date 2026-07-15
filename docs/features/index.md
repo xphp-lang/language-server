@@ -201,7 +201,7 @@ property / native function info, hover renders:
 - A type parameter's full upper bound, including composite forms --
   intersection (`A & B`), union (`A | B`), and F-bounded
   (`Comparable<T>`).
-- A type parameter's variance: `+T` (covariant) / `-T` (contravariant)
+- A type parameter's variance: `out T` (covariant) / `in T` (contravariant)
   are shown with their marker and a label; invariant params show the
   bare name.
 

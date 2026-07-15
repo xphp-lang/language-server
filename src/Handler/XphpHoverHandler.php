@@ -225,16 +225,19 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
 
     /**
      * Render a type parameter's display name and a human variance note from its
-     * `Variance`: covariant `+T` / contravariant `-T` get the marker prefix and
-     * a parenthetical; invariant stays the bare name with no note.
+     * `Variance`: covariant `out T` / contravariant `in T` get the marker prefix
+     * and a parenthetical; invariant stays the bare name with no note. xphp 0.3.0
+     * changed the source spelling from `+T`/`-T` to the `out`/`in` contextual
+     * keywords; the `Variance` enum cases are unchanged, so only the rendered
+     * marker text moves here.
      *
      * @return array{0: string, 1: string} [displayName, varianceNote]
      */
     private static function varianceLabel(TypeParam $param): array
     {
         return match ($param->variance) {
-            Variance::Covariant => ['+' . $param->name, ' (covariant)'],
-            Variance::Contravariant => ['-' . $param->name, ' (contravariant)'],
+            Variance::Covariant => ['out ' . $param->name, ' (covariant)'],
+            Variance::Contravariant => ['in ' . $param->name, ' (contravariant)'],
             Variance::Invariant => [$param->name, ''],
         };
     }

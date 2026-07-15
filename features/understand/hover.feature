@@ -51,14 +51,14 @@ Feature: Hover
       """
       <?php
       namespace App;
-      class Producer<+T>
+      class Producer<out T>
       {
           public function get(): T {}
       }
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "T" at line 4 of "/producer.xphp"
-    Then the hover contents contain "`+T`"
+    Then the hover contents contain "`out T`"
     And the hover contents contain "covariant"
 
   Scenario: Hover over a generic method turbofish call shows the specialized signature

@@ -80,11 +80,11 @@ final class XphpHoverHandlerTest extends TestCase
 
     public function testHoverShowsCovariantMarker(): void
     {
-        // Covariant `+T` is only allowed in output (return) positions.
+        // Covariant `out T` is only allowed in output (return) positions.
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        class Producer<+T>
+        class Producer<out T>
         {
             public function get(): T { }
         }
@@ -93,17 +93,17 @@ final class XphpHoverHandlerTest extends TestCase
 
         self::assertInstanceOf(Hover::class, $hover);
         $text = $hover->contents->value;
-        self::assertStringContainsString('`+T`', $text);
+        self::assertStringContainsString('`out T`', $text);
         self::assertStringContainsString('covariant', $text);
     }
 
     public function testHoverShowsContravariantMarker(): void
     {
-        // Contravariant `-T` is only allowed in input (parameter) positions.
+        // Contravariant `in T` is only allowed in input (parameter) positions.
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        class Consumer<-T>
+        class Consumer<in T>
         {
             public function put(T $item): void { }
         }
@@ -112,7 +112,7 @@ final class XphpHoverHandlerTest extends TestCase
 
         self::assertInstanceOf(Hover::class, $hover);
         $text = $hover->contents->value;
-        self::assertStringContainsString('`-T`', $text);
+        self::assertStringContainsString('`in T`', $text);
         self::assertStringContainsString('contravariant', $text);
     }
 

@@ -71,7 +71,7 @@ test suite; full descriptions to fold into [`README.md`](../README.md#features))
   of a union). Default type arguments (`class Box<T = X>`,
   `class Pair<A, B = A>`) may be omitted at a call site without a false
   "missing type argument", with the effective type substituted into parameter
-  checks. Variance markers (`+T` covariant, `-T` contravariant) are shown in
+  checks. Variance markers (`out T` covariant, `in T` contravariant) are shown in
   hover. Instance-method turbofish (`$obj->m::<T>(...)`) binds its type
   argument for argument checking; variable turbofish over an unknown callee is
   conservatively skipped. Generic closures and arrows (`fn<T>(…)`,
