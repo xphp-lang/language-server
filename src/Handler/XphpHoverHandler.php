@@ -8,8 +8,11 @@ use Amp\CancellationToken;
 use Amp\Promise;
 use Amp\Success;
 use PhpParser\Node;
+use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Function_;
 use PhpParser\NodeFinder;
 use Phpactor\LanguageServer\Core\Handler\CanRegisterCapabilities;
 use Phpactor\LanguageServer\Core\Handler\Handler;
@@ -119,7 +122,7 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
 
         $hit = AstPositionResolver::nameAtOffset($result->ast, $offset);
         if ($hit !== null) {
-            $markdown = $this->buildHoverMarkdown($hit['name'], $hit['classScope']);
+            $markdown = $this->buildHoverMarkdown($hit['name'], $hit['classScope'], $hit['methodScope']);
             if ($markdown !== null) {
                 return new Success(new Hover(new MarkupContent(MarkupKind::MARKDOWN, $markdown)));
             }
@@ -171,9 +174,10 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
     }
 
     /**
-     * @param list<ClassLike> $classScope
+     * @param list<ClassLike>    $classScope
+     * @param list<FunctionLike> $methodScope
      */
-    private function buildHoverMarkdown(\PhpParser\Node\Name $name, array $classScope): ?string
+    private function buildHoverMarkdown(\PhpParser\Node\Name $name, array $classScope, array $methodScope = []): ?string
     {
         // Case 0: hover over a `Closure(...)` signature type. xphp 0.3.0 stamps
         // the structured signature on the `Closure` type node; it erases to a
@@ -206,6 +210,16 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
             return null;
         }
         $shortName = $parts[0];
+
+        // Case 2a: a *method*-level type-param (`function contains<U : E>(...)`).
+        // Its binding is innermost, so it wins over a same-named class param.
+        // The bound may reference the enclosing class param (`U : E`), which
+        // BoundExprView already renders as the bare identifier `E`.
+        $methodHover = self::methodTypeParamHover($shortName, $methodScope, $classScope);
+        if ($methodHover !== null) {
+            return $methodHover;
+        }
+
         foreach (array_reverse($classScope) as $classLike) {
             $params = $classLike->getAttribute(XphpSourceParser::ATTR_GENERIC_PARAMS);
             if (!is_array($params)) {
@@ -232,6 +246,74 @@ final class XphpHoverHandler implements Handler, CanRegisterCapabilities
         }
 
         return null;
+    }
+
+    /**
+     * Resolve a method-level type-param hover: the innermost enclosing
+     * function-like whose `ATTR_METHOD_GENERIC_PARAMS` declares `$shortName`
+     * (`function contains<U : E>(...)`). The owner is rendered as
+     * `Class::method` (or the bare function name for a free function); the bound
+     * -- which may reference the enclosing class param `E` -- is rendered by
+     * BoundExprView exactly as the class-param case. Returns null when no
+     * enclosing function-like declares the name, so hover falls through to the
+     * class-param scan.
+     *
+     * @param list<FunctionLike> $methodScope
+     * @param list<ClassLike>    $classScope
+     */
+    private static function methodTypeParamHover(string $shortName, array $methodScope, array $classScope): ?string
+    {
+        foreach (array_reverse($methodScope) as $fn) {
+            $params = $fn->getAttribute(XphpSourceParser::ATTR_METHOD_GENERIC_PARAMS);
+            if (!is_array($params)) {
+                continue;
+            }
+            foreach ($params as $param) {
+                if (!$param instanceof TypeParam || $param->name !== $shortName) {
+                    continue;
+                }
+                $boundDisplay = BoundExprView::displayString($param->bound);
+                $boundLine = $boundDisplay !== null
+                    ? sprintf("\n\nbounded by `%s`", $boundDisplay)
+                    : '';
+                [$displayName, $varianceNote] = self::varianceLabel($param);
+                return sprintf(
+                    "**Type parameter `%s`** of `%s`%s%s",
+                    $displayName,
+                    self::functionLikeOwner($fn, $classScope),
+                    $varianceNote,
+                    $boundLine,
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Human owner label for a method type-param: `Class::method` for a method
+     * (class FQN from the innermost enclosing template scope), the bare name for
+     * a free function, or a `{closure}` marker for a closure / arrow.
+     *
+     * @param list<ClassLike> $classScope
+     */
+    private static function functionLikeOwner(FunctionLike $fn, array $classScope): string
+    {
+        if ($fn instanceof ClassMethod) {
+            $method = $fn->name->toString();
+            foreach (array_reverse($classScope) as $classLike) {
+                $owner = $classLike->getAttribute(XphpSourceParser::ATTR_TEMPLATE_FQN);
+                $class = is_string($owner) ? $owner : ($classLike->name?->toString());
+                if ($class !== null) {
+                    return $class . '::' . $method;
+                }
+            }
+            return $method;
+        }
+        if ($fn instanceof Function_) {
+            return $fn->name->toString();
+        }
+        return '{closure}';
     }
 
     /**

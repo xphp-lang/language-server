@@ -361,6 +361,23 @@ Feature: Hover
     When I request "textDocument/hover" on "list" at line 3 of "/Use.xphp"
     Then the hover contents contain "list(string $x): string"
 
+  Scenario: Hover over a method type parameter bounded by the enclosing class param
+    Given the file at "/Box.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<out E>
+      {
+          public function contains<U : E>(U $value): bool { return true; }
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "U $value" at line 4 of "/Box.xphp"
+    Then the hover contents contain "Type parameter"
+    And the hover contents contain "`U`"
+    And the hover contents contain "App\Box::contains"
+    And the hover contents contain "bounded by `E`"
+
   Scenario: Hover over a Closure signature type shows the structured signature
     Given the file at "/Sig.xphp" contains the following lines:
       """
