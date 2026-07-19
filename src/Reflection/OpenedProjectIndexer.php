@@ -7,6 +7,9 @@ namespace XPHP\Lsp\Reflection;
 use Phpactor\LanguageServer\Event\TextDocumentOpened;
 use Psr\EventDispatcher\ListenerProviderInterface;
 use XPHP\Lsp\Project\XphpManifest;
+use XPHP\Lsp\Stderr;
+
+use function Amp\asyncCall;
 
 /**
  * Folds a sibling project into the FQN index as its files are opened.
@@ -38,7 +41,28 @@ final class OpenedProjectIndexer implements ListenerProviderInterface
 
     public function onOpen(TextDocumentOpened $event): void
     {
-        $this->register(self::uriToPath($event->textDocument()->uri));
+        $registered = $this->register(self::uriToPath($event->textDocument()->uri));
+
+        // Registering new roots invalidated the filesystem snapshot; warm the
+        // re-walk off-thread so the first navigation into the project doesn't pay
+        // the ~500ms cost in-band (mirrors FqnIndexWarmer). Pure latency
+        // optimization — register() above already made the roots resolvable, so
+        // this branch has no observable behaviour to assert.
+        // @infection-ignore-all
+        if ($registered) {
+            asyncCall(function (): void {
+                try {
+                    $count = count($this->fqnIndex->allClassFqns());
+                    Stderr::write(sprintf("[xphp-lsp warmer] opened-project index warmed (%d FQNs)\n", $count));
+                } catch (\Throwable $e) {
+                    // Warming a sibling project from an arbitrary didOpen touches
+                    // less-trusted paths; a failure must not reach the loop error
+                    // handler. The roots are still registered — the next query
+                    // re-walks in-band and surfaces any real problem there.
+                    Stderr::write(sprintf("[xphp-lsp warmer] opened-project warm failed: %s\n", $e->getMessage()));
+                }
+            });
+        }
     }
 
     /**
