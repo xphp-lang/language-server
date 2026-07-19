@@ -248,6 +248,11 @@ final class LspDispatcherFactory implements DispatcherFactory
             // pay the ~500ms filesystem-walk cost in-band.  Async via
             // Amp\asyncCall -- doesn't block the initialize handshake.
             new \XPHP\Lsp\Reflection\FqnIndexWarmer($fqnIndex),
+            // Multi-root (Track A): when a file from a project OUTSIDE the
+            // workspace root is opened, fold that project's source roots into the
+            // FQN index so navigation resolves its symbols. Keys purely off the
+            // opened file's path -- no editor-specific signal.
+            new \XPHP\Lsp\Reflection\OpenedProjectIndexer($fqnIndex),
             // Perf #1: warm ParsedDocumentCache with every filesystem-
             // indexed file so the cold first `textDocument/references`
             // (codeLens click, Alt+F7) skips the per-file parse step --

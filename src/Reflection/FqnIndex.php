@@ -159,11 +159,15 @@ final class FqnIndex
      */
     private ?string $currentOrigin = null;
 
-    /** @var list<string> deduped, existing source-root dirs to walk (realpath'd). */
-    private readonly array $sourceRoots;
+    /**
+     * @var list<string> deduped source-root dirs to walk (realpath'd). Not readonly:
+     *   {@see registerSourceRoots} appends the source roots of a sibling project as
+     *   its files are opened, so navigation resolves symbols declared there.
+     */
+    private array $sourceRoots;
 
     /** @var array<string, true> realpath'd dirs to prune from the walk (manifest output/cache). */
-    private readonly array $excludedRealDirs;
+    private array $excludedRealDirs;
 
     /**
      * @param string       $rootPath         the primary workspace root (InitializeParams). An
@@ -484,6 +488,54 @@ final class FqnIndex
      * (~100ms across the playground), and the next FqnIndex query is
      * usually one keystroke away anyway.
      */
+    /**
+     * Add source-root dirs (and dirs to exclude) to the walk after construction —
+     * used to fold a sibling project into the index when one of its files is
+     * opened, so go-to-definition / references / completion resolve symbols
+     * declared there even though the workspace is rooted elsewhere. Dirs already
+     * indexed (by realpath) are ignored. Returns whether anything new was added;
+     * when it did, the filesystem snapshot is invalidated so the next query
+     * re-walks (the caller may warm that off-thread).
+     *
+     * @param list<string> $dirs         absolute source-root dirs to walk
+     * @param list<string> $excludedDirs absolute dirs to prune (build-output / cache)
+     */
+    public function registerSourceRoots(array $dirs, array $excludedDirs = []): bool
+    {
+        $changed = false;
+        $seen = array_fill_keys($this->sourceRoots, true);
+        foreach ($dirs as $dir) {
+            if ($dir === '' || !is_dir($dir)) {
+                continue;
+            }
+            $real = realpath($dir);
+            // @infection-ignore-all Ternary -- the `: $dir` branch is unreachable:
+            // realpath() only fails on a missing path, and !is_dir already skipped
+            // those above.
+            $key = $real !== false ? $real : $dir;
+            if (isset($seen[$key])) {
+                continue;
+            }
+            // @infection-ignore-all TrueValue -- $seen is read only via isset(), so
+            // the stored value is irrelevant.
+            $seen[$key] = true;
+            $this->sourceRoots[] = $key;
+            $changed = true;
+        }
+        foreach (self::normalizeExcludedDirs($excludedDirs) as $real => $_) {
+            if (!isset($this->excludedRealDirs[$real])) {
+                // @infection-ignore-all TrueValue -- excludedRealDirs is a set read
+                // via isset(); the sentinel value is irrelevant.
+                $this->excludedRealDirs[$real] = true;
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            $this->invalidateFilesystem();
+        }
+        return $changed;
+    }
+
     public function invalidateFilesystem(): void
     {
         $this->filesystemMap = null;

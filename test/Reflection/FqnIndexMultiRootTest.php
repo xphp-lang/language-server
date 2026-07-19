@@ -90,6 +90,60 @@ final class FqnIndexMultiRootTest extends TestCase
         self::assertSame([], $index->indexedFilesystemPaths());
     }
 
+    public function testRegisterSourceRootsFoldsInASiblingProject(): void
+    {
+        $rootA = $this->makeDir('pkgA');
+        $rootB = $this->makeDir('pkgB');
+        $this->write($rootA . '/A.xphp', "<?php\nnamespace App;\nclass Alpha {}\n");
+        $this->write($rootB . '/B.xphp', "<?php\nnamespace App;\nclass Beta {}\n");
+
+        // Index initially only knows rootA; rootB's symbol is unresolvable.
+        $index = $this->index($rootA, []);
+        self::assertNull($index->pathFor('App\\Beta'));
+
+        $before = $index->filesystemVersion();
+        self::assertTrue($index->registerSourceRoots([$rootB]), 'a new root was added');
+        self::assertGreaterThan($before, $index->filesystemVersion(), 'adding a root invalidates the snapshot');
+
+        // Now both projects resolve.
+        self::assertSame(realpath($rootA . '/A.xphp'), $index->pathFor('App\\Alpha'));
+        self::assertSame(realpath($rootB . '/B.xphp'), $index->pathFor('App\\Beta'));
+    }
+
+    public function testRegisterSourceRootsProcessesEveryEntry(): void
+    {
+        // A skipped entry (non-dir) and a duplicate in the MIDDLE must not stop
+        // the loop — the valid root after them still gets registered.
+        $rootB = $this->makeDir('pkgB');
+        $rootC = $this->makeDir('pkgC');
+        $this->write($rootB . '/B.xphp', "<?php\nnamespace App;\nclass Beta {}\n");
+        $this->write($rootC . '/C.xphp', "<?php\nnamespace App;\nclass Gamma {}\n");
+
+        $index = $this->index('', []);
+        self::assertTrue($index->registerSourceRoots([$rootB, '/no/such/dir', $rootB, $rootC]));
+
+        self::assertSame(realpath($rootB . '/B.xphp'), $index->pathFor('App\\Beta'));
+        self::assertSame(realpath($rootC . '/C.xphp'), $index->pathFor('App\\Gamma'), 'the root after a skip/dup is still registered');
+    }
+
+    public function testRegisterSourceRootsIsIdempotentAndPrunesExcluded(): void
+    {
+        $root = $this->makeDir('app');
+        $this->write($root . '/src/Widget.xphp', "<?php\nnamespace App;\nclass Widget {}\n");
+        $this->write($root . '/build/Widget_x.php', "<?php\nnamespace XPHP\\Generated;\nclass Widget_x {}\n");
+
+        $index = $this->index('', []);
+        self::assertTrue($index->registerSourceRoots([$root . '/src'], [$root . '/build']));
+
+        // Re-registering the same root (and a non-existent one) adds nothing.
+        $version = $index->filesystemVersion();
+        self::assertFalse($index->registerSourceRoots([$root . '/src', $root . '/does-not-exist']));
+        self::assertSame($version, $index->filesystemVersion(), 'no change means no invalidation');
+
+        self::assertSame(realpath($root . '/src/Widget.xphp'), $index->pathFor('App\\Widget'));
+        self::assertNull($index->pathFor('XPHP\\Generated\\Widget_x'), 'excluded build dir is pruned');
+    }
+
     /**
      * @param list<string> $extraRoots
      * @param list<string> $excludedDirs
