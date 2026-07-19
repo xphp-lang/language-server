@@ -149,6 +149,41 @@ final class CompilerCheckRunnerTest extends TestCase
         }
     }
 
+    public function testPerDocumentDiscoveryScopesToTheSavedFilesOwnManifest(): void
+    {
+        // No workspace root at all: saving a file inside a project that has an
+        // xphp.json still discovers that manifest by walking up from the file, and
+        // scopes to it. This is the multi-root / mis-rooted workspace fix.
+        $reject = $this->fixture('scoped') . '/src/Reject.xphp';
+        $byUri = (new CompilerCheckRunner(''))->run($reject);
+
+        $flat = [];
+        foreach ($byUri as $diags) {
+            foreach ($diags as $d) {
+                $flat[] = $d;
+            }
+        }
+        self::assertContains(
+            'xphp.closure_conformance',
+            self::codes($flat),
+            "the saved file's own project is checked via its nearest xphp.json",
+        );
+        // tests/ is outside the manifest's sources (["src"]) — it must NOT be
+        // checked, even though Ignored.xphp carries its own error.
+        foreach (array_keys($byUri) as $uri) {
+            self::assertStringNotContainsString('/tests/', (string) $uri, 'files outside the manifest sources are excluded');
+        }
+    }
+
+    public function testFromPathWithoutAnAncestorManifestFallsBackToTheWorkspaceRoot(): void
+    {
+        // The `multi` fixture has no xphp.json above it, so a saved file there
+        // falls back to the configured rootPath resolution (both files checked).
+        $root = $this->fixture('multi');
+        $byUri = (new CompilerCheckRunner($root))->run($root . '/A.xphp');
+        self::assertCount(2, $byUri);
+    }
+
     public function testLargeSourceSetsAreSkippedToProtectTheEventLoop(): void
     {
         // The `multi` fixture has two files; a cap of 1 must skip the whole pass

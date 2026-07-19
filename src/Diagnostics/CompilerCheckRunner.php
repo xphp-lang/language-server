@@ -73,22 +73,11 @@ final class CompilerCheckRunner implements DiagnosticsCheckSource
      *
      * @return array<string, list<LspDiagnostic>>
      */
-    public function run(): array
+    public function run(?string $fromPath = null): array
     {
-        // Load-bearing guard, NOT just an optimization: without the `return []`,
-        // an empty root would fall through to resolveSources() -> XphpManifest::locate('')
-        // which walks up from the process CWD and could pick up an UNRELATED
-        // ancestor xphp.json. The `||`->`&&` mutant is equivalent (both an empty
-        // and a non-existent root funnel to [] either way), but dropping the return
-        // is a real behaviour change, so only LogicalOr is ignored here.
-        // @infection-ignore-all LogicalOr
-        if ($this->rootPath === '' || !is_dir($this->rootPath)) {
-            return [];
-        }
-
         $startedAt = hrtime(true);
         try {
-            $resolved = $this->resolveSources();
+            $resolved = $this->resolveSources($fromPath);
             if ($resolved === null) {
                 return [];
             }
@@ -141,12 +130,35 @@ final class CompilerCheckRunner implements DiagnosticsCheckSource
     }
 
     /**
-     * Resolve the project's source set exactly as `xphp check` does: prefer an
-     * `xphp.json` manifest (walks its source roots, excludes target/cache), else
-     * treat the workspace root itself as a single source directory.
+     * Resolve the project's source set, `xphp check`-style (manifest source roots,
+     * target/cache excluded).
+     *
+     * Per-document first: when a saved file is given, discover the nearest
+     * `xphp.json` walking UP from that file's own directory and scope to it. This
+     * makes multi-root and mis-rooted workspaces resolve each file to its own
+     * project rather than an arbitrary workspace root (the server tracks a single
+     * legacy `rootPath` and doesn't read `workspaceFolders`). Falls back to the
+     * configured `rootPath` when the file has no ancestor manifest.
      */
-    private function resolveSources(): ?\XPHP\Config\ResolvedSources
+    private function resolveSources(?string $fromPath): ?\XPHP\Config\ResolvedSources
     {
+        if ($fromPath !== null) {
+            $dir = dirname($fromPath);
+            if (is_dir($dir)) {
+                $manifest = XphpManifest::locate($dir);
+                if ($manifest !== null) {
+                    return $this->resolver()->resolve(null, $manifest, $dir);
+                }
+            }
+        }
+
+        // Fall back to the workspace root. Guarded so we never locate('') and walk
+        // up from the process CWD onto an unrelated ancestor xphp.json; dropping
+        // this return is a real behaviour change, so only LogicalOr is ignored.
+        // @infection-ignore-all LogicalOr
+        if ($this->rootPath === '' || !is_dir($this->rootPath)) {
+            return null;
+        }
         $manifest = XphpManifest::locate($this->rootPath);
         if ($manifest !== null) {
             return $this->resolver()->resolve(null, $manifest, $this->rootPath);

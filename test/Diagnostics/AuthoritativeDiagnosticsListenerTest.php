@@ -47,7 +47,7 @@ final class AuthoritativeDiagnosticsListenerTest extends TestCase
             {
             }
 
-            public function run(): array
+            public function run(?string $fromPath = null): array
             {
                 return array_shift($this->queue) ?? [];
             }

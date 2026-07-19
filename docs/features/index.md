@@ -308,6 +308,14 @@ reflects the last-saved state; editing a file supersedes its
 authoritative findings until the next save. No compiler subprocess is
 spawned -- the validator runs in-process.
 
+The source set is discovered **per saved file**: the server walks up from
+the file's own directory to the nearest `xphp.json` and scopes the check to
+that manifest, so a file resolves to *its own* project even in a multi-root
+or mis-rooted workspace (the server tracks a single legacy `rootPath` and
+does not read `workspaceFolders`). A file with no ancestor manifest falls
+back to the workspace root. Very large / unscoped source sets are skipped
+(with a log line) so the synchronous check can never block the editor.
+
 ### Default type arguments (no false missing-arg)
 
 Not a diagnostic code of its own -- this is how the bound and

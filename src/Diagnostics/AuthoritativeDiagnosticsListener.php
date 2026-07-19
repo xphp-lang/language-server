@@ -68,13 +68,15 @@ final class AuthoritativeDiagnosticsListener implements ListenerProviderInterfac
 
     public function onSave(TextDocumentSaved $event): void
     {
+        // The saved file anchors per-document manifest discovery in the runner.
+        $fromPath = self::uriToPath($event->identifier()->uri);
         $generation = ++$this->generation;
-        asyncCall(function () use ($generation): void {
+        asyncCall(function () use ($generation, $fromPath): void {
             // A newer save arrived before this tick ran — let that one do the work.
             if ($generation !== $this->generation) {
                 return;
             }
-            $this->refresh();
+            $this->refresh($fromPath);
         });
     }
 
@@ -83,9 +85,9 @@ final class AuthoritativeDiagnosticsListener implements ListenerProviderInterfac
      * clear any non-open files that no longer have diagnostics. Synchronous and
      * side-effect-only — the unit-test entry point.
      */
-    public function refresh(): void
+    public function refresh(?string $fromPath = null): void
     {
-        $byUri = $this->runner->run();
+        $byUri = $this->runner->run($fromPath);
         $this->store->replaceAll($byUri);
 
         /** @var array<string, true> $publishedNow */
@@ -116,5 +118,11 @@ final class AuthoritativeDiagnosticsListener implements ListenerProviderInterfac
     private function isOpen(string $uri): bool
     {
         return $this->workspace !== null && $this->workspace->has($uri);
+    }
+
+    private static function uriToPath(string $uri): ?string
+    {
+        // TextDocumentIdentifier already url-decodes; just strip the scheme.
+        return str_starts_with($uri, 'file://') ? substr($uri, 7) : null;
     }
 }

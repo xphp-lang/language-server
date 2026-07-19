@@ -15,7 +15,12 @@ use Phpactor\LanguageServerProtocol\Diagnostic as LspDiagnostic;
 interface DiagnosticsCheckSource
 {
     /**
+     * @param ?string $fromPath absolute path of the file that triggered the run
+     *        (the just-saved document). When given, the source set is resolved
+     *        from the nearest `xphp.json` walking up from that file's directory —
+     *        so multi-root / mis-rooted workspaces still scope to the file's own
+     *        project. Null falls back to the configured workspace root.
      * @return array<string, list<LspDiagnostic>>
      */
-    public function run(): array;
+    public function run(?string $fromPath = null): array;
 }
