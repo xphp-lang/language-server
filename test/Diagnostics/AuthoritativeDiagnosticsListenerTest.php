@@ -141,7 +141,11 @@ final class AuthoritativeDiagnosticsListenerTest extends TestCase
             new \Phpactor\LanguageServerProtocol\VersionedTextDocumentIdentifier(2, self::URI),
             'text',
         );
+        $opened = new \Phpactor\LanguageServer\Event\TextDocumentOpened(
+            new TextDocumentItem(self::URI, 'xphp', 1, '<?php'),
+        );
         self::assertEquals([[$listener, 'onSave']], [...$listener->getListenersForEvent($saved)], 'save binds onSave');
+        self::assertEquals([[$listener, 'onOpen']], [...$listener->getListenersForEvent($opened)], 'open binds onOpen');
         self::assertEquals([[$listener, 'onChange']], [...$listener->getListenersForEvent($changed)], 'change binds onChange');
         self::assertSame([], [...$listener->getListenersForEvent(new \stdClass())], 'an unrelated event yields nothing');
     }

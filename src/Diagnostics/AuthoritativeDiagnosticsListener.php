@@ -6,6 +6,7 @@ namespace XPHP\Lsp\Diagnostics;
 
 use Closure;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
+use Phpactor\LanguageServer\Event\TextDocumentOpened;
 use Phpactor\LanguageServer\Event\TextDocumentSaved;
 use Phpactor\LanguageServer\Event\TextDocumentUpdated;
 use Phpactor\LanguageServerProtocol\Diagnostic as LspDiagnostic;
@@ -64,10 +65,25 @@ final class AuthoritativeDiagnosticsListener implements ListenerProviderInterfac
         if ($event instanceof TextDocumentSaved) {
             return [[$this, 'onSave']];
         }
+        if ($event instanceof TextDocumentOpened) {
+            return [[$this, 'onOpen']];
+        }
         if ($event instanceof TextDocumentUpdated) {
             return [[$this, 'onChange']];
         }
         return [];
+    }
+
+    /**
+     * Opening a document runs the check for its project too, so a file's deep
+     * diagnostics appear immediately on open (from its last-saved state) without
+     * needing a redundant save. The buffer equals disk at open time, so the
+     * on-disk analysis is accurate. The engine publishes the opened document on
+     * this same event, merging the freshly-populated store.
+     */
+    public function onOpen(TextDocumentOpened $event): void
+    {
+        $this->scheduleRun(self::uriToPath($event->textDocument()->uri));
     }
 
     /**
@@ -85,10 +101,14 @@ final class AuthoritativeDiagnosticsListener implements ListenerProviderInterfac
     public function onSave(TextDocumentSaved $event): void
     {
         // The saved file anchors per-document manifest discovery in the runner.
-        $fromPath = self::uriToPath($event->identifier()->uri);
+        $this->scheduleRun(self::uriToPath($event->identifier()->uri));
+    }
+
+    private function scheduleRun(?string $fromPath): void
+    {
         $generation = ++$this->generation;
         asyncCall(function () use ($generation, $fromPath): void {
-            // A newer save arrived before this tick ran — let that one do the work.
+            // A newer trigger arrived before this tick ran — let that one do it.
             if ($generation !== $this->generation) {
                 return;
             }
