@@ -92,7 +92,7 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 final class GenericResolver
 {
     /**
-     * @var array<string, array{version: int, scopes: list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>}>
+     * @var array<string, array{version: int, scopes: list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>}>
      */
     private array $cache = [];
 
@@ -933,7 +933,7 @@ final class GenericResolver
     }
 
     /**
-     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>
+     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>
      */
     private function scopesFor(string $uri, int $version, string $text): array
     {
@@ -962,11 +962,11 @@ final class GenericResolver
     }
 
     /**
-     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>
+     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>
      */
     private static function emptyScopes(): array
     {
-        return [['start' => 0, 'end' => PHP_INT_MAX, 'bindings' => []]];
+        return [['start' => 0, 'end' => PHP_INT_MAX, 'bindings' => [], 'history' => []]];
     }
 
     /**
@@ -975,7 +975,7 @@ final class GenericResolver
      * matches and has the widest range, so any nested function scope
      * wins on overlap.
      *
-     * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}> $scopes
+     * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}> $scopes
      * @return array<string, VarBinding|ResolvedType>
      */
     public static function bindingsAt(array $scopes, int $offset): array
@@ -989,7 +989,29 @@ final class GenericResolver
                 $best = $scope;
             }
         }
-        return $best === null ? [] : $best['bindings'];
+        if ($best === null) {
+            return [];
+        }
+        // Flow-sensitive: for each variable, return the binding from the nearest
+        // assignment AT OR BEFORE $offset, so a later reassignment to a different
+        // type doesn't leak backwards onto an earlier hover (a var reassigned
+        // `$x = ...::<string>()` then `$x = ...::<int>()` reads as the right type
+        // at each site). Seeded params/uses carry the scope-start position.
+        $out = [];
+        foreach ($best['history'] as $name => $entries) {
+            $chosen = null;
+            foreach ($entries as $entry) {
+                // @infection-ignore-all GreaterThanOrEqualTo -- distinct assignments
+                // have distinct positions, so `>=` vs `>` never differ (no ties).
+                if ($entry['pos'] <= $offset && ($chosen === null || $entry['pos'] >= $chosen['pos'])) {
+                    $chosen = $entry;
+                }
+            }
+            if ($chosen !== null) {
+                $out[$name] = $chosen['binding'];
+            }
+        }
+        return $out;
     }
 
     /**
@@ -997,7 +1019,7 @@ final class GenericResolver
      * one (top-level) scope.
      *
      * @param list<Node\Stmt> $ast
-     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>
+     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>
      */
     private function build(array $ast): array
     {
@@ -1019,7 +1041,7 @@ final class GenericResolver
 
         $visitor = new class($scopes, $stack, $useMap, $currentNamespace, $classes, $fqnIndex) extends NodeVisitorAbstract {
             /**
-             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}> $scopes
+             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}> $scopes
              * @param list<int> $stack
              * @param array<string, string> $useMap
              */
@@ -1060,10 +1082,12 @@ final class GenericResolver
                     if ($start < 0 || $end < 0) {
                         return null;
                     }
+                    $seeded = self::seedFromParams($node->params, $this->classes);
                     $this->scopes[] = [
                         'start' => $start,
                         'end' => $end,
-                        'bindings' => self::seedFromParams($node->params, $this->classes),
+                        'bindings' => $seeded,
+                        'history' => self::seedHistory($seeded, $start),
                     ];
                     $this->stack[] = count($this->scopes) - 1;
                     return null;
@@ -1095,6 +1119,7 @@ final class GenericResolver
                         'start' => $start,
                         'end' => $end,
                         'bindings' => $closureBindings,
+                        'history' => self::seedHistory($closureBindings, $start),
                     ];
                     $this->stack[] = count($this->scopes) - 1;
                     return null;
@@ -1127,6 +1152,10 @@ final class GenericResolver
                     return;
                 }
                 $name = $lhs->name;
+                // Position of this assignment's LHS: the binding it produces is
+                // in effect for hovers AT or AFTER this point, until the next
+                // reassignment. Enables flow-sensitive lookup (see bindingsAt).
+                $pos = $lhs->getStartFilePos();
                 $rhs = $node->expr;
 
                 if ($rhs instanceof New_) {
@@ -1141,7 +1170,7 @@ final class GenericResolver
                             $this->classes,
                         );
                     if ($binding !== null) {
-                        $this->writeBinding($name, $binding);
+                        $this->writeBinding($name, $binding, $pos);
                     }
                     return;
                 }
@@ -1155,7 +1184,7 @@ final class GenericResolver
                         $this->currentNamespace,
                     );
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                     return;
                 }
@@ -1167,14 +1196,14 @@ final class GenericResolver
                         $this->currentNamespace,
                     );
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                     return;
                 }
                 if ($rhs instanceof FuncCall) {
                     $resolved = GenericResolver::resolveFuncCall($rhs, $this->fqnIndex);
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                     return;
                 }
@@ -1188,7 +1217,7 @@ final class GenericResolver
                         $this->currentNamespace,
                     );
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                 }
             }
@@ -1202,10 +1231,31 @@ final class GenericResolver
                 return $this->scopes[$idx]['bindings'];
             }
 
-            private function writeBinding(string $name, VarBinding|ResolvedType $binding): void
+            private function writeBinding(string $name, VarBinding|ResolvedType $binding, int $pos): void
             {
                 $idx = $this->stack[count($this->stack) - 1];
+                // `bindings` is the accumulated (last-wins) map used to resolve
+                // later RHS expressions DURING the walk. `history` additionally
+                // records each assignment's position so a QUERY can pick the
+                // binding in effect at a given offset (flow-sensitive).
                 $this->scopes[$idx]['bindings'][$name] = $binding;
+                $this->scopes[$idx]['history'][$name][] = ['pos' => $pos, 'binding' => $binding];
+            }
+
+            /**
+             * Seed flow-history from an initial binding map (function params,
+             * closure uses) so those bindings are visible from the scope's start.
+             *
+             * @param  array<string, VarBinding|ResolvedType> $bindings
+             * @return array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>
+             */
+            private static function seedHistory(array $bindings, int $pos): array
+            {
+                $history = [];
+                foreach ($bindings as $name => $binding) {
+                    $history[$name] = [['pos' => $pos, 'binding' => $binding]];
+                }
+                return $history;
             }
 
             /**
@@ -1430,7 +1480,7 @@ final class GenericResolver
         ) extends NodeVisitorAbstract {
             /**
              * @param list<NullDerefSite>                                                                       $sites
-             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>       $scopes
+             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>       $scopes
              * @param array<string, string>                                                                     $useMap
              */
             public function __construct(

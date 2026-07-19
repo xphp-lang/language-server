@@ -1138,6 +1138,17 @@ final class GenericResolverTest extends TestCase
             '?App\\Models\\User',
             $resolver->resolveVariable('/Use.xphp', 'b', $bOffset),
         );
+        // Directly hovering the seeded bindings inside the closure resolves both.
+        // The CAPTURE ($outer) is the SECOND seeded entry, so this guards against
+        // the seed-history dropping later bindings.
+        self::assertSame(
+            'App\\Containers\\Collection<App\\Models\\User>',
+            $resolver->resolveVariable('/Use.xphp', 'param', strpos($source, '$param->first')),
+        );
+        self::assertSame(
+            'App\\Containers\\Collection<App\\Models\\User>',
+            $resolver->resolveVariable('/Use.xphp', 'outer', strpos($source, '$outer->first')),
+        );
     }
 
     public function testRebuildsBindingsOnDocumentVersionBump(): void
@@ -1218,6 +1229,41 @@ final class GenericResolverTest extends TestCase
             }
         }
         rmdir($dir);
+    }
+
+    public function testReassignedVariableResolvesFlowSensitively(): void
+    {
+        // A variable reassigned to a different method-turbofish result must read
+        // as the type in effect AT each site: a later reassignment must not leak
+        // its type backwards onto an earlier hover.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Book {}
+        class Box<E>
+        {
+            public function __construct(E ...$e) {}
+            public function map<R>(Closure(E $x): R $fn): Box<R> { return new Box::<R>(); }
+        }
+        $b = new Box::<Book>(new Book());
+        $x = $b->map::<string>(fn (Book $bk): string => 'x');
+        $mid = $x;
+        $x = $b->map::<int>(fn (Book $bk): int => 1);
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+        $src = $workspace->get('/Use.xphp')->text;
+        // The `$` of each `$x =` assignment is exactly its binding position.
+        $firstAssign = (int) strpos($src, '$x = $b->map::<string>');
+        $secondAssign = (int) strpos($src, '$x = $b->map::<int>');
+
+        // AT the exact first-assignment offset the binding is already in effect
+        // (boundary: pos <= offset), so it reads Box<string>, not the later int.
+        self::assertSame('App\\Box<string>', $resolver->resolveVariable('/Use.xphp', 'x', $firstAssign));
+        self::assertSame('App\\Box<string>', $resolver->resolveVariable('/Use.xphp', 'x', $firstAssign + 5));
+        self::assertSame('App\\Box<int>', $resolver->resolveVariable('/Use.xphp', 'x', $secondAssign));
+        self::assertSame('App\\Box<int>', $resolver->resolveVariable('/Use.xphp', 'x', PHP_INT_MAX));
     }
 
     private function workspace(): PhpactorWorkspace
