@@ -285,9 +285,28 @@ hands back a closure **literal** provably violating that target --
 a return type that isn't a subtype, a parameter type that isn't
 wider (contravariance), a wrong arity, or a by-ref mismatch -- is
 flagged with `xphp.closure_conformance`. The check itself is owned
-by the xphp compiler; the server surfaces it. Value flows where the
-candidate isn't a literal at the target (a variable, a call
-argument) stay gradual and are not flagged.
+by the xphp compiler; the server surfaces it. Return-position
+literals are caught live as you type; closure literals passed as
+**call arguments** to a generic method (e.g.
+`$box->map::<string>(fn(int $x) => ...)`) are caught by the on-save
+whole-project check below, because verifying them requires grounding
+the receiver's type parameters against the actual specialization.
+
+### On-save whole-project check
+
+Diagnostics run in two tiers. The fast tier re-analyzes open buffers
+on every keystroke (tolerant parse) and drives completion, hover, and
+the live squiggles above. On **save**, a second authoritative tier
+runs the xphp compiler's own whole-project validator
+(`Compiler::check()`) over the manifest's source set -- the same
+analysis `xphp check` performs -- and merges its findings in. This
+tier sees the whole program at once, so it reaches diagnostics the
+per-buffer tier structurally cannot: grounded, call-argument closure
+conformance, and cross-file generic errors where the declaration and
+the use site live in different files. It reads from disk, so it
+reflects the last-saved state; editing a file supersedes its
+authoritative findings until the next save. No compiler subprocess is
+spawned -- the validator runs in-process.
 
 ### Default type arguments (no false missing-arg)
 

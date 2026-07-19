@@ -74,6 +74,15 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
          * (most unit tests) simply skip that diagnostic and behave as before.
          */
         private readonly ?GenericResolver $genericResolver = null,
+        /**
+         * Holds the last on-save authoritative (compiler `check()`) diagnostics.
+         * When set, each open document's published set is merged with its
+         * authoritative diagnostics — so the fast tolerant tier and the
+         * whole-project compiler tier reach the client in a single publish (a
+         * publish is a full replace, so a second publisher would clobber). Null
+         * in pull-mode / unit contexts that don't run the authoritative pass.
+         */
+        private readonly ?AuthoritativeDiagnosticsStore $authoritativeStore = null,
     ) {
     }
 
@@ -211,10 +220,48 @@ final class XphpDiagnosticsProvider implements DiagnosticsProvider
                 $meta['version'],
                 $meta['source'],
             );
-            $result[$uri] = array_merge($perFile, $workspaceDiagnostics);
+            $result[$uri] = $this->mergeAuthoritative(
+                array_merge($perFile, $workspaceDiagnostics),
+                $uri,
+            );
         }
 
         return $result;
+    }
+
+    /**
+     * Append the URI's authoritative (compiler `check()`) diagnostics to its
+     * tolerant set, skipping any that duplicate a tolerant diagnostic already
+     * present at the same line + code. The tolerant entry wins on a tie because
+     * its range is computed against the live buffer; the authoritative range is
+     * disk-based (identical on a just-saved doc, possibly stale after an edit).
+     *
+     * @param  list<LspDiagnostic> $tolerant
+     * @return list<LspDiagnostic>
+     */
+    private function mergeAuthoritative(array $tolerant, string $uri): array
+    {
+        if ($this->authoritativeStore === null) {
+            return $tolerant;
+        }
+        $authoritative = $this->authoritativeStore->get($uri);
+        if ($authoritative === []) {
+            return $tolerant;
+        }
+        $seen = [];
+        foreach ($tolerant as $d) {
+            $seen[$d->range->start->line . "\0" . (string) ($d->code ?? '')] = true;
+        }
+        $merged = $tolerant;
+        foreach ($authoritative as $d) {
+            $key = $d->range->start->line . "\0" . (string) ($d->code ?? '');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $merged[] = $d;
+        }
+        return $merged;
     }
 
     /**

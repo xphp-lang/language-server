@@ -44,6 +44,9 @@ use Psr\Log\NullLogger;
 use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
+use XPHP\Lsp\Diagnostics\AuthoritativeDiagnosticsListener;
+use XPHP\Lsp\Diagnostics\AuthoritativeDiagnosticsStore;
+use XPHP\Lsp\Diagnostics\CompilerCheckRunner;
 use XPHP\Lsp\Diagnostics\XphpDiagnosticsProvider;
 use XPHP\Lsp\Handler\WorkspaceSymbols;
 use XPHP\Lsp\Handler\XphpCompletionHandler;
@@ -188,6 +191,13 @@ final class LspDispatcherFactory implements DispatcherFactory
         $phpDefinitionResolver = new PhpDefinitionResolver($workspace, $xphpParser, $reflector, $cache, $genericResolver);
         $phpHoverResolver = new PhpHoverResolver($workspace, $xphpParser, $reflector, $genericParams, $genericResolver);
 
+        // Authoritative (on-save) diagnostics tier: the compiler's own
+        // whole-project `check()` produces the grounded, call-argument closure
+        // conformance + bound diagnostics the tolerant per-keystroke pass can't.
+        // Its results land in this store; the provider merges them into each open
+        // document's publish so both tiers reach the client in one message.
+        $authoritativeStore = new AuthoritativeDiagnosticsStore();
+
         $diagnosticsProvider = new XphpDiagnosticsProvider(
             $cache,
             new WorkspaceAnalyzer(),
@@ -199,6 +209,7 @@ final class LspDispatcherFactory implements DispatcherFactory
             // Type-inference engine for the conservative null-dereference
             // diagnostic (xphp.null-deref) on chained nullable receivers.
             $genericResolver,
+            $authoritativeStore,
         );
 
         $diagnosticsEngine = new DiagnosticsEngine(
@@ -244,6 +255,18 @@ final class LspDispatcherFactory implements DispatcherFactory
             // Runs on the same Initialized event, independently of the
             // FQN warmer above; both are asyncCall-dispatched.
             new \XPHP\Lsp\Analyzer\ParsedDocumentCacheWarmer($fqnIndex, $cache, $workspace),
+            // On-save authoritative diagnostics: run the compiler's whole-project
+            // `check()` and publish. Registered BEFORE $diagnosticsService so the
+            // authoritative store is refreshed ahead of the engine's own on-save
+            // pass, which then publishes open docs with both tiers merged. Inert
+            // when $rootPath is empty (e.g. the behat harness), like the FQN index.
+            new AuthoritativeDiagnosticsListener(
+                new CompilerCheckRunner($rootPath),
+                $authoritativeStore,
+                static fn (string $uri, ?int $version, array $diagnostics)
+                    => $clientApi->diagnostics()->publishDiagnostics($uri, $version, $diagnostics),
+                $workspace,
+            ),
             $diagnosticsService,
         );
 

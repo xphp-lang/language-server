@@ -1,0 +1,26 @@
+<?php
+declare(strict_types=1);
+namespace App\AuthSelfCall;
+
+final class Book
+{
+    public function __construct(public string $name) {}
+}
+
+class Box<E>
+{
+    public function __construct(private E $value) {}
+
+    public function mapSelf(Closure(E $x): string $fn): string
+    {
+        return $fn($this->value);
+    }
+
+    public function useIt(): string
+    {
+        return $this->mapSelf(fn(int $x): string => (string) $x);
+    }
+}
+
+$box = new Box::<Book>(new Book('PHP'));
+$box->useIt();

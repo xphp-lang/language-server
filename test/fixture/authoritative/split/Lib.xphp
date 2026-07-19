@@ -1,0 +1,18 @@
+<?php
+declare(strict_types=1);
+namespace App\AuthSplit;
+
+final class Book
+{
+    public function __construct(public string $name) {}
+}
+
+class Box<E>
+{
+    public function __construct(private E $value) {}
+
+    public function map<R>(Closure(E $x): R $fn): R
+    {
+        return $fn($this->value);
+    }
+}

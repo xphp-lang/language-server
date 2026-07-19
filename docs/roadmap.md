@@ -85,6 +85,13 @@ test suite; full descriptions to fold into [`README.md`](../README.md#features))
   re-published for every *other* open document whose results changed
   (per-URI signature-guarded against edit storms), so a dependent flags / clears
   without being touched.
+- **On-save authoritative diagnostics** -- on save, the xphp compiler's own
+  whole-project validator (`Compiler::check()`, the engine behind `xphp check`)
+  runs in-process over the manifest's source set and its findings are merged into
+  the published diagnostics. This reaches what the per-buffer tier structurally
+  cannot -- grounded, call-argument closure conformance and cross-file generic
+  errors -- with zero duplicated validation logic (the compiler stays the single
+  source of truth).
 - **Bound-error fix-its** -- a `Generic bound violated` diagnostic now offers
   "Add `implements \Bound` to `<class>`" (cross-file edit on the concrete class)
   and "Change type argument to `<Candidate>`" (bound-satisfying workspace types,
