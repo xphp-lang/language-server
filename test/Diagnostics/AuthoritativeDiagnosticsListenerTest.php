@@ -123,7 +123,7 @@ final class AuthoritativeDiagnosticsListenerTest extends TestCase
         self::assertCount(1, $store->get(self::URI), 'but the store still holds them for the merge');
     }
 
-    public function testOnlyReactsToSaveEvents(): void
+    public function testReactsToSaveAndChangeEventsOnly(): void
     {
         $listener = new AuthoritativeDiagnosticsListener(
             $this->source([]),
@@ -137,12 +137,37 @@ final class AuthoritativeDiagnosticsListenerTest extends TestCase
             new \Phpactor\LanguageServerProtocol\TextDocumentIdentifier(self::URI),
             null,
         );
-        self::assertEquals(
-            [[$listener, 'onSave']],
-            [...$listener->getListenersForEvent($saved)],
-            'a save event binds the onSave handler',
+        $changed = new \Phpactor\LanguageServer\Event\TextDocumentUpdated(
+            new \Phpactor\LanguageServerProtocol\VersionedTextDocumentIdentifier(2, self::URI),
+            'text',
         );
+        self::assertEquals([[$listener, 'onSave']], [...$listener->getListenersForEvent($saved)], 'save binds onSave');
+        self::assertEquals([[$listener, 'onChange']], [...$listener->getListenersForEvent($changed)], 'change binds onChange');
         self::assertSame([], [...$listener->getListenersForEvent(new \stdClass())], 'an unrelated event yields nothing');
+    }
+
+    public function testEditingAFileEvictsItsStaleAuthoritativeDiagnostics(): void
+    {
+        // A file had an authoritative error at last save; editing it (e.g.
+        // commenting out the line) must drop that stale finding immediately so it
+        // isn't merged onto a line the user has already changed.
+        $store = new AuthoritativeDiagnosticsStore();
+        $store->replaceAll([self::URI => [$this->diag()]]);
+        $listener = new AuthoritativeDiagnosticsListener(
+            $this->source([]),
+            $store,
+            static function (): void {
+            },
+            null,
+        );
+        self::assertCount(1, $store->get(self::URI));
+
+        $listener->onChange(new \Phpactor\LanguageServer\Event\TextDocumentUpdated(
+            new \Phpactor\LanguageServerProtocol\VersionedTextDocumentIdentifier(2, self::URI),
+            'edited text',
+        ));
+
+        self::assertSame([], $store->get(self::URI), 'editing evicts the stale authoritative diagnostics');
     }
 
     public function testNonOpenFileIsPublishedEvenAfterAnOpenOne(): void

@@ -7,6 +7,7 @@ namespace XPHP\Lsp\Diagnostics;
 use Closure;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServer\Event\TextDocumentSaved;
+use Phpactor\LanguageServer\Event\TextDocumentUpdated;
 use Phpactor\LanguageServerProtocol\Diagnostic as LspDiagnostic;
 use Psr\EventDispatcher\ListenerProviderInterface;
 
@@ -63,7 +64,22 @@ final class AuthoritativeDiagnosticsListener implements ListenerProviderInterfac
         if ($event instanceof TextDocumentSaved) {
             return [[$this, 'onSave']];
         }
+        if ($event instanceof TextDocumentUpdated) {
+            return [[$this, 'onChange']];
+        }
         return [];
+    }
+
+    /**
+     * On any edit, evict the document's authoritative diagnostics so the stale
+     * (last-saved) findings stop being merged the instant the buffer diverges
+     * from disk. The engine re-publishes the changed document on this same event,
+     * so the squiggle clears immediately; the next save re-checks and, if the
+     * error is still there, re-publishes it.
+     */
+    public function onChange(TextDocumentUpdated $event): void
+    {
+        $this->store->evict($event->identifier()->uri);
     }
 
     public function onSave(TextDocumentSaved $event): void

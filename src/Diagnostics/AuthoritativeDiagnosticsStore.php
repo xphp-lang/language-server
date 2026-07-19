@@ -49,4 +49,16 @@ final class AuthoritativeDiagnosticsStore
     {
         return $this->byUri[$uri] ?? [];
     }
+
+    /**
+     * Drop a file's authoritative diagnostics. Called when the document is edited:
+     * the stored findings were computed against the on-disk state, so any edit
+     * makes them stale (e.g. commenting out the offending line). They must stop
+     * being merged immediately and only return after the next save re-checks —
+     * otherwise a stale error lingers on a line the user has already changed.
+     */
+    public function evict(string $uri): void
+    {
+        unset($this->byUri[$uri]);
+    }
 }
