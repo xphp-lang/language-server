@@ -189,7 +189,7 @@ final class LspDispatcherFactory implements DispatcherFactory
         // on property access through a generic method's return type can
         // resolve via the substituted receiver class.
         $phpDefinitionResolver = new PhpDefinitionResolver($workspace, $xphpParser, $reflector, $cache, $genericResolver);
-        $phpHoverResolver = new PhpHoverResolver($workspace, $xphpParser, $reflector, $genericParams, $genericResolver);
+        $phpHoverResolver = new PhpHoverResolver($workspace, $xphpParser, $reflector, $genericParams, $genericResolver, $fqnIndex);
 
         // Authoritative (on-save) diagnostics tier: the compiler's own
         // whole-project `check()` produces the grounded, call-argument closure

@@ -6,8 +6,14 @@ namespace XPHP\Lsp\Resolver;
 
 use Amp\CancellationToken;
 use PhpParser\Node;
+use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\Name;
+use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitorAbstract;
+use XPHP\Lsp\Reflection\FqnIndex;
+use XPHP\Transpiler\Monomorphize\ClosureSignature;
+use XPHP\Transpiler\Monomorphize\TypeParam;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\LanguageServerProtocol\Hover;
 use Phpactor\LanguageServerProtocol\MarkupContent;
@@ -50,6 +56,12 @@ final class PhpHoverResolver
         private readonly Reflector $reflector,
         private readonly GenericParamRegistry $genericParams,
         private readonly GenericResolver $genericResolver,
+        // Used to recover the ORIGINAL xphp method declaration (worse-reflection
+        // only sees the generics-erased, stripped form) so a generic method's
+        // hover shows its `<R>` clause and `Closure(...)` signature params rather
+        // than a bare `Closure` with an orphaned `R` in the return. Optional:
+        // when absent, method hovers fall back to the erased worse-reflection view.
+        private readonly ?FqnIndex $fqnIndex = null,
     ) {
     }
 
@@ -330,9 +342,25 @@ final class PhpHoverResolver
         // available; fall back to prettify (drops the namespace from
         // placeholder names) for params/return the substitution doesn't
         // cover (e.g. parameters with union types).
+        // Recover the original xphp declaration: its method-generic clause (`<R>`)
+        // and any `Closure(...)`-signature parameter types, both erased in the
+        // worse-reflection view. Look it up on the DECLARING class (not the
+        // receiver) so a method inherited from a base class still resolves. Null
+        // for non-xphp / non-generic methods.
+        $xphpMethod = $this->xphpMethodNode((string) $method->declaringClass()->name(), $methodName);
+        $clause = $xphpMethod !== null ? self::methodGenericClause($xphpMethod) : '';
+        $closureSigParams = $xphpMethod !== null ? self::closureSigParams($xphpMethod) : [];
+
         $params = [];
         foreach ($method->parameters() as $param) {
             $paramName = $param->name();
+            if (isset($closureSigParams[$paramName])) {
+                // Restore the erased `Closure(E $x): R` signature type.
+                // @infection-ignore-all UnwrapTrim -- the rendered closure sig + " $name"
+                // never carries surrounding whitespace, so trim() is a no-op here.
+                $params[] = trim($closureSigParams[$paramName] . ' $' . $paramName);
+                continue;
+            }
             $type = $substitution !== null && isset($substitution->paramTypes[$paramName])
                 ? $substitution->paramTypes[$paramName]
                 : $this->genericParams->prettify((string) $param->inferredType());
@@ -342,16 +370,81 @@ final class PhpHoverResolver
             ? $substitution->returnType
             : $this->genericParams->prettify((string) $method->returnType());
         $signature = sprintf(
-            '%s %sfunction %s(%s)%s',
+            '%s %sfunction %s%s(%s)%s',
             $visibility,
             $static,
             $method->name(),
+            $clause,
             implode(', ', $params),
             $return !== '' && $return !== '<missing>' ? ': ' . $return : '',
         );
         $signature = sprintf('// %s%s%s', $classFqn, "\n", $signature);
         $docblock = self::docblockText($method->docblock());
         return self::format($signature, $docblock);
+    }
+
+    /**
+     * The original xphp {@see ClassMethod} node for `$classFqn::$methodName`, or
+     * null (no index, unresolved class, or method not found). Used to recover the
+     * generic clause + closure-signature params the reflected view erases.
+     */
+    private function xphpMethodNode(string $classFqn, string $methodName): ?ClassMethod
+    {
+        $hit = $this->fqnIndex?->classLikeAstFor($classFqn);
+        if ($hit === null) {
+            return null;
+        }
+        foreach ($hit['classLike']->getMethods() as $method) {
+            if (strcasecmp($method->name->toString(), $methodName) === 0) {
+                return $method;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Render a method's own generic clause, e.g. `<R>` or `<R, S>`, from its
+     * `ATTR_METHOD_GENERIC_PARAMS`. Empty string for a non-generic method.
+     */
+    private static function methodGenericClause(ClassMethod $method): string
+    {
+        $params = $method->getAttribute(XphpSourceParser::ATTR_METHOD_GENERIC_PARAMS);
+        if (!is_array($params) || $params === []) {
+            return '';
+        }
+        $names = [];
+        foreach ($params as $param) {
+            if ($param instanceof TypeParam) {
+                $names[] = $param->name;
+            }
+        }
+        return $names === [] ? '' : '<' . implode(', ', $names) . '>';
+    }
+
+    /**
+     * Map of paramName -> rendered `Closure(...)` signature, for parameters whose
+     * declared type carries an `ATTR_CLOSURE_SIG` (erased to bare `\Closure` in
+     * the reflected view).
+     *
+     * @return array<string, string>
+     */
+    private static function closureSigParams(ClassMethod $method): array
+    {
+        $out = [];
+        foreach ($method->params as $param) {
+            // @infection-ignore-all LogicalOr -- defensive: a method Param's var is
+            // always a string-named Variable in parsed source, so the guard's two
+            // arms never both matter; it can't be exercised to distinguish ||/&&.
+            if (!$param->var instanceof Variable || !is_string($param->var->name)) {
+                continue;
+            }
+            $type = $param->type;
+            $sig = $type instanceof Name ? $type->getAttribute(XphpSourceParser::ATTR_CLOSURE_SIG) : null;
+            if ($sig instanceof ClosureSignature) {
+                $out[$param->var->name] = ClosureSignatureView::render($sig);
+            }
+        }
+        return $out;
     }
 
     private function renderProperty(?string $classFqn, string $propertyName, ?string $substitutedType = null): ?string

@@ -80,7 +80,7 @@ Feature: Hover
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
-    Then the hover contents contain "identity(string $x): string"
+    Then the hover contents contain "identity<T>(string $x): string"
 
   Scenario: Hover over an inherited generic method turbofish resolves through the base class
     Given the file at "/Base.xphp" contains the following lines:
@@ -107,7 +107,7 @@ Feature: Hover
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
-    Then the hover contents contain "identity(string $x): string"
+    Then the hover contents contain "identity<T>(string $x): string"
 
   Scenario: Hover over a method returning static resolves to the receiver's concrete type
     Given the file at "/Builder.xphp" contains the following lines:
@@ -359,7 +359,7 @@ Feature: Hover
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "list" at line 3 of "/Use.xphp"
-    Then the hover contents contain "list(string $x): string"
+    Then the hover contents contain "list<T>(string $x): string"
 
   Scenario: Hover over a method type parameter bounded by the enclosing class param
     Given the file at "/Box.xphp" contains the following lines:

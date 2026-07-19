@@ -313,7 +313,7 @@ final class PhpHoverResolverTest extends TestCase
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'Factory::make', strlen('Factory::make'));
 
         self::assertSame(
-            "```php\n// App\\Containers\\Factory\npublic static function make(App\\Models\\User \$seed): App\\Models\\User\n```",
+            "```php\n// App\\Containers\\Factory\npublic static function make<T>(App\\Models\\User \$seed): App\\Models\\User\n```",
             $this->markdown($hover),
         );
     }
@@ -385,7 +385,7 @@ final class PhpHoverResolverTest extends TestCase
         $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'Util::first', strlen('Util::first'));
 
         self::assertSame(
-            "```php\n// App\\Containers\\Util\npublic static function first(array \$items): ?T\n```",
+            "```php\n// App\\Containers\\Util\npublic static function first<T>(array \$items): ?T\n```",
             $this->markdown($hover),
         );
     }
@@ -1106,7 +1106,7 @@ final class PhpHoverResolverTest extends TestCase
         return $this->resolverWithRoot($workspace, '');
     }
 
-    private function resolverWithRoot(PhpactorWorkspace $workspace, string $rootPath): PhpHoverResolver
+    private function resolverWithRoot(PhpactorWorkspace $workspace, string $rootPath, bool $withFqnIndex = true): PhpHoverResolver
     {
         $parser = new XphpSourceParser((new ParserFactory())->createForHostVersion());
         $cache = new ParsedDocumentCache(new Analyzer($parser));
@@ -1130,7 +1130,83 @@ final class PhpHoverResolverTest extends TestCase
             $reflector,
             new GenericParamRegistry($fqnIndex),
             $generic,
+            $withFqnIndex ? $fqnIndex : null,
         );
+    }
+
+    public function testGenericMethodHoverRestoresClauseAndClosureSignature(): void
+    {
+        // Regression: a generic method with a Closure(...)-signature parameter
+        // must hover with its `<R>` clause and the closure signature restored --
+        // not the generics-erased worse-reflection view (`map(Closure $fn):
+        // ImmutableList<R>`, where R came from nowhere).
+        $workspace = $this->workspace();
+        $this->open($workspace, '/List.xphp', <<<'XPHP'
+        <?php
+        namespace App\Coll;
+        class ImmutableList<E>
+        {
+            public function __construct(E ...$e) {}
+            public function map<R>(Closure(E $x): R $fn): ImmutableList<R> { return new ImmutableList::<R>(); }
+        }
+        XPHP);
+        $useSource = "<?php\nnamespace App\\Coll;\n\$l = new ImmutableList::<int>(1);\n\$l->map::<string>(fn (int \$x): string => 'x');\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '->map', strlen('->'));
+
+        self::assertSame(
+            "```php\n// App\\Coll\\ImmutableList\npublic function map<R>(Closure(E): R \$fn): App\\Coll\\ImmutableList<string>\n```",
+            $this->markdown($hover),
+        );
+    }
+
+    public function testMethodHoverRendersEveryClosureSignatureParam(): void
+    {
+        // A method with TWO Closure(...)-signature params must render BOTH -- guards
+        // the per-param loop and the closure-sig map against dropping a later one.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Z.xphp', <<<'XPHP'
+        <?php
+        namespace App\Coll;
+        class Zipper<E>
+        {
+            public function zip<R>(Closure(E $x): R $f, Closure(R $y): E $g): E {}
+        }
+        XPHP);
+        $useSource = "<?php\nnamespace App\\Coll;\n\$z = new Zipper::<int>();\n\$z->zip::<string>(fn (int \$x): string => 'x', fn (string \$y): int => 1);\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $md = $this->markdown($this->hoverAt($workspace, '/Use.xphp', $useSource, '->zip', strlen('->')));
+
+        self::assertStringContainsString('zip<R>(', $md);
+        self::assertStringContainsString('Closure(E): R $f', $md);
+        self::assertStringContainsString('Closure(R): E $g', $md);
+    }
+
+    public function testMethodHoverFallsBackWithoutFqnIndex(): void
+    {
+        // Without an FqnIndex the resolver can't recover the xphp declaration, so it
+        // falls back to the erased worse-reflection signature -- no crash, no clause.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/List.xphp', <<<'XPHP'
+        <?php
+        namespace App\Coll;
+        class ImmutableList<E>
+        {
+            public function map<R>(Closure(E $x): R $fn): ImmutableList<R> {}
+        }
+        XPHP);
+        $useSource = "<?php\nnamespace App\\Coll;\n\$l = new ImmutableList::<int>();\n\$l->map::<string>(fn (int \$x): string => 'x');\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $resolver = $this->resolverWithRoot($workspace, '', withFqnIndex: false);
+        $byte = strpos($useSource, '->map') + strlen('->');
+        [$line, $char] = (new PositionMap($useSource))->offsetToPosition($byte);
+        $md = $this->markdown($resolver->resolve('/Use.xphp', $line, $char));
+
+        self::assertStringContainsString('function map(', $md, 'no clause without the index');
+        self::assertStringNotContainsString('map<R>', $md);
     }
 
     private function workspace(): PhpactorWorkspace
