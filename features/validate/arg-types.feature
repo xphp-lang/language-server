@@ -263,4 +263,4 @@ Feature: Argument-type checking across call shapes
       """
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
-    Then no diagnostics are reported
+    Then a "xphp.too_many_type_arguments" diagnostic is reported saying "remove the extra"

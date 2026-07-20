@@ -78,6 +78,51 @@ final class DiagnosticCodeTest extends TestCase
         );
     }
 
+    public function testTooManyTypeArgumentsMapsToCode(): void
+    {
+        // Registry::tooManyTypeArgumentsMessage (0.3.0) — distinctive interior
+        // phrase "remove the extra argument".
+        $e = new RuntimeException(
+            'Generic template "App\\Box" declares 1 type parameter(s) but was '
+            . 'instantiated with 2 type argument(s); remove the extra argument(s).'
+        );
+
+        self::assertSame(
+            DiagnosticCode::TooManyTypeArguments,
+            DiagnosticCode::fromRegistryRecordInstantiationException($e),
+        );
+    }
+
+    public function testMissingTypeArgumentMapsToCode(): void
+    {
+        // Registry::missingTypeArgumentMessage (0.3.0) — "has no default; supply it".
+        $e = new RuntimeException(
+            'Generic template "App\\Box" was instantiated with 0 type argument(s) '
+            . 'but parameter `T` (position 1) has no default; supply it explicitly '
+            . 'or add defaults to every preceding required parameter.'
+        );
+
+        self::assertSame(
+            DiagnosticCode::MissingTypeArgument,
+            DiagnosticCode::fromRegistryRecordInstantiationException($e),
+        );
+    }
+
+    public function testDefaultBoundViolationFallsBackToBoundViolation(): void
+    {
+        // Registry::defaultBoundViolationMessage — a default that violates its
+        // param's bound is still an ordinary bound violation (xphp.bound).
+        $e = new RuntimeException(
+            "Default for generic parameter `T` of \"App\\Box\" violates the parameter's bound.\n"
+            . "  bound:   Stringable\n  default: int\n  reason:  int is not Stringable"
+        );
+
+        self::assertSame(
+            DiagnosticCode::BoundViolation,
+            DiagnosticCode::fromRegistryRecordInstantiationException($e),
+        );
+    }
+
     public function testEachCodeMapsToTheLspWireString(): void
     {
         // Locks the backed-enum values that the LSP wire format depends on
@@ -89,5 +134,14 @@ final class DiagnosticCodeTest extends TestCase
         self::assertSame('xphp.definition', DiagnosticCode::Definition->value);
         self::assertSame('xphp.bound', DiagnosticCode::BoundViolation->value);
         self::assertSame('xphp.collision', DiagnosticCode::HashCollision->value);
+        // xphp 0.3.0 generic-validation codes.
+        self::assertSame('xphp.too_many_type_arguments', DiagnosticCode::TooManyTypeArguments->value);
+        self::assertSame('xphp.missing_type_argument', DiagnosticCode::MissingTypeArgument->value);
+        self::assertSame('xphp.undeclared_type', DiagnosticCode::UndeclaredType->value);
+        self::assertSame('xphp.bound_unprovable', DiagnosticCode::BoundUnprovable->value);
+        self::assertSame('xphp.closure_conformance', DiagnosticCode::ClosureConformance->value);
+        self::assertSame('xphp.unspecialized_generic_closure', DiagnosticCode::UnspecializedGenericClosure->value);
+        self::assertSame('xphp.unresolved_generic_call', DiagnosticCode::UnresolvedGenericCall->value);
+        self::assertSame('xphp.undetermined_receiver', DiagnosticCode::UndeterminedReceiver->value);
     }
 }

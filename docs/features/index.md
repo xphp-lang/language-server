@@ -201,9 +201,25 @@ property / native function info, hover renders:
 - A type parameter's full upper bound, including composite forms --
   intersection (`A & B`), union (`A | B`), and F-bounded
   (`Comparable<T>`).
-- A type parameter's variance: `+T` (covariant) / `-T` (contravariant)
+- A type parameter's variance: `out T` (covariant) / `in T` (contravariant)
   are shown with their marker and a label; invariant params show the
   bare name.
+- A **method-level** type parameter, including one bounded by the
+  enclosing class param: hovering `U` in
+  `class Box<out E> { function contains<U : E>(...) }` shows
+  `Type parameter U of App\Box::contains bounded by E`.
+- A `Closure(int $x, string $y): bool` signature type in a parameter,
+  return, or property position, rendered as its structured form
+  (`Closure(int, string): bool`) -- params without names, nullable and
+  composite (union / intersection) members preserved.
+- A generic **method's** own signature with its type-parameter clause
+  and `Closure(...)` signature params restored -- hovering a call to
+  `map<R>(Closure(E $x): R $fn): List<R>` renders `map<R>(Closure(E): R
+  $fn): ...` rather than the generics-erased `map(Closure $fn)` form.
+  Inherited generic methods resolve against the declaring base class.
+- A local variable's type is resolved **flow-sensitively**: a variable
+  reassigned to different generic types reads as the type in effect at
+  the cursor, not the last assignment in the file.
 
 ### Signature Help
 
@@ -248,10 +264,10 @@ as type parameters.
 ## Validate
 
 Diagnostics surface in both push (`textDocument/publishDiagnostics`)
-and pull (`textDocument/diagnostic`, LSP 3.17) modes. Six diagnostic
+and pull (`textDocument/diagnostic`, LSP 3.17) modes. Seven diagnostic
 codes are emitted today: `xphp.parse`, `xphp.bound`, `xphp.definition`
 (duplicate template), `xphp.undefined-name`, `xphp.ctor-arg-mismatch`,
-and `xphp.arg-mismatch`.
+`xphp.arg-mismatch`, and `xphp.closure_conformance`.
 
 ### Parse errors
 
@@ -269,6 +285,44 @@ open buffers), so `new Box::<Tag>(...)` resolves correctly even when
 `Tag.xphp` isn't currently open in the editor. Error messages
 reference the source-level instantiation (e.g. `Box<int>`) rather
 than the hashed specialization name.
+
+### Closure signature conformance
+
+A factory whose declared return type is `Closure(...)` and that
+hands back a closure **literal** provably violating that target --
+a return type that isn't a subtype, a parameter type that isn't
+wider (contravariance), a wrong arity, or a by-ref mismatch -- is
+flagged with `xphp.closure_conformance`. The check itself is owned
+by the xphp compiler; the server surfaces it. Return-position
+literals are caught live as you type; closure literals passed as
+**call arguments** to a generic method (e.g.
+`$box->map::<string>(fn(int $x) => ...)`) are caught by the on-save
+whole-project check below, because verifying them requires grounding
+the receiver's type parameters against the actual specialization.
+
+### On-save whole-project check
+
+Diagnostics run in two tiers. The fast tier re-analyzes open buffers
+on every keystroke (tolerant parse) and drives completion, hover, and
+the live squiggles above. On **save**, a second authoritative tier
+runs the xphp compiler's own whole-project validator
+(`Compiler::check()`) over the manifest's source set -- the same
+analysis `xphp check` performs -- and merges its findings in. This
+tier sees the whole program at once, so it reaches diagnostics the
+per-buffer tier structurally cannot: grounded, call-argument closure
+conformance, and cross-file generic errors where the declaration and
+the use site live in different files. It reads from disk, so it
+reflects the last-saved state; editing a file supersedes its
+authoritative findings until the next save. No compiler subprocess is
+spawned -- the validator runs in-process.
+
+The source set is discovered **per saved file**: the server walks up from
+the file's own directory to the nearest `xphp.json` and scopes the check to
+that manifest, so a file resolves to *its own* project even in a multi-root
+or mis-rooted workspace (the server tracks a single legacy `rootPath` and
+does not read `workspaceFolders`). A file with no ancestor manifest falls
+back to the workspace root. Very large / unscoped source sets are skipped
+(with a log line) so the synchronous check can never block the editor.
 
 ### Default type arguments (no false missing-arg)
 
@@ -337,6 +391,11 @@ Context-aware completion in every meaningful position:
   Composite bounds are respected: a candidate must satisfy **every**
   leaf of an intersection (`T : A & B`) and **any** leaf of a union
   (`T : A | B`).
+- **Closure-signature type position** (`function h(Closure(|): ...)`)
+  -- a type token inside a `Closure(int $x, string $y): bool`
+  signature (first param, after a `,`, or the return type after `:`)
+  offers class names and scalars, the same unbounded candidate set a
+  bound-free type-arg slot gets.
 - **Member access** (`$obj->`) and **static access** (`Cls::`) --
   methods, properties, and constants from the receiver.
 - **Static property access** (`Cls::$`) -- a distinct context kind
@@ -375,6 +434,33 @@ Implementation properties that determine how the server behaves
 under load, on cold start, and across editor sessions. Not LSP
 methods in their own right, but visible to users through editor
 responsiveness and reliability.
+
+### Project manifest (`xphp.json`) multi-root indexing
+
+When the workspace declares an xphp 0.3.0 `xphp.json` manifest, the
+FQN index resolves its source roots (auto-detected by walking up from
+the workspace root, or via an explicit config path) and walks them
+alongside the workspace root -- so declarations in a source root that
+lives outside the editor's root still resolve for go-to-definition,
+hover, and completion. The manifest's build-output and
+generated-class-cache directories are pruned from the walk, so the
+specialized PHP the compiler emits is never indexed as source (and
+never shadows the `.xphp` original). A file reachable through more
+than one root is indexed once. An absent or malformed manifest falls
+back to the single workspace root -- the server never hard-fails on a
+bad manifest.
+
+Opening a file from a **sibling project outside the workspace root**
+extends this on the fly: on `textDocument/didOpen`, the server walks up
+from the opened file to its own nearest `xphp.json` and folds that
+project's source roots into the index. So with the workspace rooted at
+one project, opening a file from a neighbouring package makes its
+symbols resolve for go-to-definition, find-references, completion and
+rename -- even though the server tracks only a single legacy `rootPath`
+and does not read `workspaceFolders`. The newly-registered roots are
+warmed off-thread so the first navigation into the sibling isn't cold.
+Duplicate FQNs across projects blend by proximity (nearest declaration
+to the working file), not hard per-project isolation.
 
 ### AST cache (warmed on Initialize)
 

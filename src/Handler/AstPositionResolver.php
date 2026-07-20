@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace XPHP\Lsp\Handler;
 
 use PhpParser\Node;
+use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\NodeTraverser;
@@ -12,10 +13,12 @@ use PhpParser\NodeVisitorAbstract;
 
 /**
  * Walks an AST and locates the smallest Name node whose byte range contains a
- * given offset. Also captures the stack of enclosing ClassLike nodes at the hit
- * site — handlers need that to look up type-params declared on the surrounding
- * template (e.g. resolving `T` in `public T $item` requires knowing which
- * ClassLike the `T` lives inside).
+ * given offset. Also captures the stack of enclosing ClassLike nodes AND the
+ * stack of enclosing function-likes (methods / functions / closures) at the hit
+ * site — handlers need the former to resolve a class type-param (`T` in
+ * `public T $item`) and the latter to resolve a *method*-level type-param
+ * (`U` in `function contains<U : E>(U $value)`), whose bound may itself
+ * reference the enclosing class param.
  *
  * Used by HoverHandler (and, later, DefinitionHandler) — extracted so the
  * resolution logic is testable in isolation.
@@ -24,7 +27,7 @@ final readonly class AstPositionResolver
 {
     /**
      * @param list<Node\Stmt> $ast
-     * @return array{name: Name, classScope: list<ClassLike>}|null
+     * @return array{name: Name, classScope: list<ClassLike>, methodScope: list<FunctionLike>}|null
      */
     public static function nameAtOffset(array $ast, int $offset): ?array
     {
@@ -32,10 +35,16 @@ final readonly class AstPositionResolver
             /** @var list<ClassLike> */
             private array $classStack = [];
 
+            /** @var list<FunctionLike> */
+            private array $methodStack = [];
+
             public ?Name $found = null;
 
             /** @var list<ClassLike> */
             public array $foundClassStack = [];
+
+            /** @var list<FunctionLike> */
+            public array $foundMethodStack = [];
 
             public function __construct(private readonly int $offset)
             {
@@ -45,6 +54,9 @@ final readonly class AstPositionResolver
             {
                 if ($node instanceof ClassLike) {
                     $this->classStack[] = $node;
+                }
+                if ($node instanceof FunctionLike) {
+                    $this->methodStack[] = $node;
                 }
                 if (!$node instanceof Name) {
                     return null;
@@ -63,6 +75,7 @@ final readonly class AstPositionResolver
                 // because nikic walks parents before children.
                 $this->found = $node;
                 $this->foundClassStack = $this->classStack;
+                $this->foundMethodStack = $this->methodStack;
                 return null;
             }
 
@@ -70,6 +83,9 @@ final readonly class AstPositionResolver
             {
                 if ($node instanceof ClassLike) {
                     array_pop($this->classStack);
+                }
+                if ($node instanceof FunctionLike) {
+                    array_pop($this->methodStack);
                 }
                 return null;
             }
@@ -82,6 +98,10 @@ final readonly class AstPositionResolver
         if ($visitor->found === null) {
             return null;
         }
-        return ['name' => $visitor->found, 'classScope' => $visitor->foundClassStack];
+        return [
+            'name' => $visitor->found,
+            'classScope' => $visitor->foundClassStack,
+            'methodScope' => $visitor->foundMethodStack,
+        ];
     }
 }

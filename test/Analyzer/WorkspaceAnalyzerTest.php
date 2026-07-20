@@ -46,6 +46,46 @@ final class WorkspaceAnalyzerTest extends TestCase
         self::assertGreaterThan(0, $d->startCharacter, 'must not start at column 0 (whole-line) anymore');
     }
 
+    public function testClosureReturnConformanceViolationIsFlagged(): void
+    {
+        $files = $this->parseFiles([
+            '/Factory.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            function make(): Closure(): int {
+                return fn(): string => 'x';
+            }
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        self::assertCount(1, $diagnostics['/Factory.xphp'], 'the non-conforming closure literal should be flagged');
+        $d = $diagnostics['/Factory.xphp'][0];
+        self::assertSame(DiagnosticCode::ClosureConformance, $d->code);
+        self::assertStringContainsString('return type', $d->message);
+        // The diagnostic lands on the `return fn(...)` line (line 4, 0-based 3),
+        // spanning that whole line (upstream carries only a start line).
+        self::assertSame(3, $d->startLine, 'diagnostic must land on the offending return line');
+    }
+
+    public function testConformingClosureLiteralProducesNoDiagnostic(): void
+    {
+        $files = $this->parseFiles([
+            '/Ok.xphp' => <<<'PHP'
+            <?php
+            namespace App;
+            function make(): Closure(int $x): bool {
+                return fn(int $x): bool => true;
+            }
+            PHP,
+        ]);
+
+        $diagnostics = (new WorkspaceAnalyzer())->analyze($files);
+
+        self::assertSame([], $diagnostics['/Ok.xphp'], 'a conforming closure literal must not be flagged');
+    }
+
     public function testCompositeBoundViolationEmitsLeafListInFixData(): void
     {
         $files = $this->parseFiles([

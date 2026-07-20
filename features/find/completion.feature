@@ -138,3 +138,22 @@ Feature: Completion
     When I request completion after "Pair::<" at line 2 of "/Use.xphp"
     Then a completion item labeled "Both" is offered
     And no completion item labeled "OnlyAnimal" is offered
+
+  Scenario: Suggest type names inside a Closure signature parameter position
+    Given the file at "/Models.xphp" contains the following lines:
+      """
+      <?php
+      namespace App\Models;
+      class Plastic {}
+      class Metal {}
+      """
+    And the file at "/Sig.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      function h(Closure(
+      """
+    And the FQN index has been warmed on initialize
+    When I request completion after "Closure(" at line 2 of "/Sig.xphp"
+    Then a completion item labeled "Plastic" is offered
+    And a completion item labeled "Metal" is offered

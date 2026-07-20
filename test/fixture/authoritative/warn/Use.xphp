@@ -1,0 +1,12 @@
+<?php
+declare(strict_types=1);
+namespace App\AuthWarn;
+
+class Box<out E>
+{
+    public function __construct(private E $value) {}
+}
+
+function makeGhost(): Ghost {}
+
+$box = new Box::<Ghost>(makeGhost());

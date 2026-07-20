@@ -159,12 +159,85 @@ final class FqnIndex
      */
     private ?string $currentOrigin = null;
 
+    /**
+     * @var list<string> deduped source-root dirs to walk (realpath'd). Not readonly:
+     *   {@see registerSourceRoots} appends the source roots of a sibling project as
+     *   its files are opened, so navigation resolves symbols declared there.
+     */
+    private array $sourceRoots;
+
+    /** @var array<string, true> realpath'd dirs to prune from the walk (manifest output/cache). */
+    private array $excludedRealDirs;
+
+    /**
+     * @param string       $rootPath         the primary workspace root (InitializeParams). An
+     *                                        empty string means "no filesystem walk".
+     * @param list<string> $extraSourceRoots additional absolute source roots from an `xphp.json`
+     *                                        manifest, walked alongside `$rootPath`. Overlapping /
+     *                                        duplicate roots are deduped, and files reached through
+     *                                        more than one root are indexed once.
+     * @param list<string> $excludedDirs      absolute dirs to prune from the walk (the manifest's
+     *                                        build-output / generated-class-cache dirs), so
+     *                                        generated PHP isn't indexed as source.
+     */
     public function __construct(
         private readonly PhpactorWorkspace $workspace,
         private readonly ParsedDocumentCache $cache,
         private readonly XphpSourceParser $parser,
         private readonly string $rootPath,
+        array $extraSourceRoots = [],
+        array $excludedDirs = [],
     ) {
+        $this->sourceRoots = self::normalizeRoots($rootPath, $extraSourceRoots);
+        $this->excludedRealDirs = self::normalizeExcludedDirs($excludedDirs);
+    }
+
+    /**
+     * Dedup `$rootPath` + the manifest roots to the set of existing directories,
+     * keyed by realpath so nested / repeated roots collapse. An empty or
+     * non-directory entry is dropped (the empty-`rootPath` "no walk" sentinel).
+     *
+     * @param list<string> $extraSourceRoots
+     * @return list<string>
+     */
+    private static function normalizeRoots(string $rootPath, array $extraSourceRoots): array
+    {
+        $seen = [];
+        $roots = [];
+        foreach ([$rootPath, ...$extraSourceRoots] as $candidate) {
+            if ($candidate === '' || !is_dir($candidate)) {
+                continue;
+            }
+            $real = realpath($candidate);
+            $key = $real !== false ? $real : $candidate;
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $roots[] = $key;
+        }
+
+        return $roots;
+    }
+
+    /**
+     * @param list<string> $excludedDirs
+     * @return array<string, true>
+     */
+    private static function normalizeExcludedDirs(array $excludedDirs): array
+    {
+        $out = [];
+        foreach ($excludedDirs as $dir) {
+            if ($dir === '') {
+                continue;
+            }
+            $real = realpath($dir);
+            if ($real !== false) {
+                $out[$real] = true;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -415,6 +488,54 @@ final class FqnIndex
      * (~100ms across the playground), and the next FqnIndex query is
      * usually one keystroke away anyway.
      */
+    /**
+     * Add source-root dirs (and dirs to exclude) to the walk after construction —
+     * used to fold a sibling project into the index when one of its files is
+     * opened, so go-to-definition / references / completion resolve symbols
+     * declared there even though the workspace is rooted elsewhere. Dirs already
+     * indexed (by realpath) are ignored. Returns whether anything new was added;
+     * when it did, the filesystem snapshot is invalidated so the next query
+     * re-walks (the caller may warm that off-thread).
+     *
+     * @param list<string> $dirs         absolute source-root dirs to walk
+     * @param list<string> $excludedDirs absolute dirs to prune (build-output / cache)
+     */
+    public function registerSourceRoots(array $dirs, array $excludedDirs = []): bool
+    {
+        $changed = false;
+        $seen = array_fill_keys($this->sourceRoots, true);
+        foreach ($dirs as $dir) {
+            if ($dir === '' || !is_dir($dir)) {
+                continue;
+            }
+            $real = realpath($dir);
+            // @infection-ignore-all Ternary -- the `: $dir` branch is unreachable:
+            // realpath() only fails on a missing path, and !is_dir already skipped
+            // those above.
+            $key = $real !== false ? $real : $dir;
+            if (isset($seen[$key])) {
+                continue;
+            }
+            // @infection-ignore-all TrueValue -- $seen is read only via isset(), so
+            // the stored value is irrelevant.
+            $seen[$key] = true;
+            $this->sourceRoots[] = $key;
+            $changed = true;
+        }
+        foreach (self::normalizeExcludedDirs($excludedDirs) as $real => $_) {
+            if (!isset($this->excludedRealDirs[$real])) {
+                // @infection-ignore-all TrueValue -- excludedRealDirs is a set read
+                // via isset(); the sentinel value is irrelevant.
+                $this->excludedRealDirs[$real] = true;
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            $this->invalidateFilesystem();
+        }
+        return $changed;
+    }
+
     public function invalidateFilesystem(): void
     {
         $this->filesystemMap = null;
@@ -1296,10 +1417,10 @@ final class FqnIndex
         $genericBounds = [];
         $symbols = [];
         $walkedPaths = [];
-        if (!is_dir($this->rootPath)) {
+        if ($this->sourceRoots === []) {
             Stderr::write(sprintf(
-                "[xphp-lsp fqn-index] rootPath %s not a directory; filesystem index empty\n",
-                $this->rootPath,
+                "[xphp-lsp fqn-index] no source roots (rootPath %s); filesystem index empty\n",
+                $this->rootPath === '' ? '<empty>' : $this->rootPath,
             ));
             $this->filesystemMap = $map;
             $this->filesystemDecls = $decls;
@@ -1313,14 +1434,26 @@ final class FqnIndex
         }
 
         $filesScanned = 0;
-        foreach ($this->iterator() as $file) {
+        $seenFiles = [];
+        foreach ($this->sourceRoots as $root) {
+        foreach ($this->iterator($root) as $file) {
             /** @var SplFileInfo $file */
             $ext = $file->getExtension();
             if ($ext !== 'php' && $ext !== 'xphp') {
                 continue;
             }
+            // A file reachable through more than one (nested / overlapping) root
+            // must be indexed once -- `$decls` appends, so a second visit would
+            // duplicate every declaration record.
+            $pathname = $file->getPathname();
+            $realFile = realpath($pathname);
+            $seenKey = $realFile !== false ? $realFile : $pathname;
+            if (isset($seenFiles[$seenKey])) {
+                continue;
+            }
+            $seenFiles[$seenKey] = true;
             $filesScanned++;
-            $walkedPaths[] = $file->getPathname();
+            $walkedPaths[] = $pathname;
 
             $source = @file_get_contents($file->getPathname());
             if ($source === false) {
@@ -1388,12 +1521,13 @@ final class FqnIndex
                 $decls[$fqn][] = $record;
             }
         }
+        }
 
         Stderr::write(sprintf(
             "[xphp-lsp fqn-index] indexed %d FQNs from %d files under %s (skipped: %s)\n",
             count($map),
             $filesScanned,
-            $this->rootPath,
+            implode(', ', $this->sourceRoots),
             implode(', ', self::SKIP_DIRS),
         ));
 
@@ -1424,22 +1558,32 @@ final class FqnIndex
         return self::findClassLikeInAst($ast, $needle);
     }
 
-    private function iterator(): RecursiveIteratorIterator
+    private function iterator(string $root): RecursiveIteratorIterator
     {
         $directoryIterator = new RecursiveDirectoryIterator(
-            $this->rootPath,
+            $root,
             RecursiveDirectoryIterator::SKIP_DOTS,
         );
 
+        $excluded = $this->excludedRealDirs;
         $filter = new \RecursiveCallbackFilterIterator(
             $directoryIterator,
-            static function (SplFileInfo $file): bool {
+            static function (SplFileInfo $file) use ($excluded): bool {
                 if (!$file->isDir()) {
                     return true;
                 }
                 $name = $file->getFilename();
                 if (in_array($name, self::SKIP_DIRS, true)) {
                     return false;
+                }
+                // Prune the manifest's build-output / cache dirs (which may sit
+                // anywhere under a root and carry names outside SKIP_DIRS) so
+                // generated PHP isn't indexed as source.
+                if ($excluded !== []) {
+                    $real = realpath($file->getPathname());
+                    if ($real !== false && isset($excluded[$real])) {
+                        return false;
+                    }
                 }
                 return true;
             },

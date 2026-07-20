@@ -15,6 +15,16 @@
     "mutators": {
         "@default": true,
 
+        "PregMatchRemoveCaret": {
+            "ignore": [
+                // v0.3.0 sprint: XphpManifest::isAbsolute drive-letter regex
+                // `^[A-Za-z]:[\\/]` -- removing the caret still matches the
+                // Windows-absolute inputs the tests use (no interior colon),
+                // so the flip is equivalent. Pinned by XphpManifestTest.
+                "XPHP\\Lsp\\Project\\XphpManifest"
+            ]
+        },
+
         // Cycle B (ImportCodeActionProvider).  Bulk-class entries appear
         // in every off-by-one / defensive-guard / iteration-order
         // mutator block below for the same reason: the provider walks
@@ -250,7 +260,22 @@
                 // never-observed `prefix > character` shape.  Same
                 // guard as the static-prop branch a few hundred
                 // lines up (`staticPropAnchorStart` arithmetic).
-                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::completeVariables"
+                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::completeVariables",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
             ]
         },
         "IncrementInteger": {
@@ -356,7 +381,14 @@
                 // completeVariables `max(0, $character - $prefixLen)`
                 // arithmetic -- same defensive shape as the
                 // DecrementInteger entry above.
-                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::completeVariables"
+                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::completeVariables",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
         "Minus": {
@@ -375,7 +407,14 @@
                 "XPHP\\Lsp\\Handler\\XphpHoverHandler::angleClauseAt",
                 "XPHP\\Lsp\\PositionMap::binarySearchLine",
                 "XPHP\\Lsp\\Resolver\\TypeUnionSplitter",
-                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver"
+                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
 
@@ -510,6 +549,13 @@
                 "XPHP\\Lsp\\Resolver\\DiagnosticCodeActionProvider",
                 // XphpImplementationHandler -- same MVP-walk pattern as XphpTypeHierarchyHandler; see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::findClassLikeFqnAt",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
         "GreaterThanOrEqualTo": {
@@ -546,7 +592,14 @@
                 "XPHP\\Lsp\\Resolver\\ImportCodeActionProvider",
                 "XPHP\\Lsp\\Resolver\\OptimizeImportsCodeActionProvider",
                 "XPHP\\Lsp\\Handler\\XphpCallHierarchyHandler",
-                "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker"
+                "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
 
@@ -568,7 +621,14 @@
                 // chains (the parser emits only the known subtypes).
                 "XPHP\\Lsp\\Handler\\TurbofishScanner",
                 "XPHP\\Lsp\\Resolver\\BoundExprView",
-                "XPHP\\Lsp\\Handler\\TypeArgPositionDetector::detect"
+                "XPHP\\Lsp\\Handler\\TypeArgPositionDetector::detect",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
 
@@ -697,6 +757,15 @@
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::implementation",
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::findClassLikeFqnAt",
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::buildLocation",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                "XPHP\\Lsp\\Project\\XphpManifest",
+                "XPHP\\Lsp\\Handler\\AstPositionResolver",
             ]
         },
 
@@ -827,7 +896,14 @@
                 "XPHP\\Lsp\\Handler\\XphpCallHierarchyHandler",
                 "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker",
                 "XPHP\\Lsp\\Resolver\\GenericResolver::resolvePropertyFetch",
-                "XPHP\\Lsp\\Resolver\\GenericResolver::findPropertyType"
+                "XPHP\\Lsp\\Resolver\\GenericResolver::findPropertyType",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
 
@@ -963,6 +1039,13 @@
                 // XphpImplementationHandler -- same MVP-walk pattern as XphpTypeHierarchyHandler; see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::extendsOrImplementsDirectly",
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::nameOf",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Project\\XphpManifest",
             ]
         },
 
@@ -1186,6 +1269,14 @@
                 // `if ($argEnd < 0) continue;` defensive guard.
                 "XPHP\\Lsp\\Handler\\XphpSignatureHelpHandler::computeActiveParameter",
                 "XPHP\\Lsp\\Resolver\\TypeUnionSplitter",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                "XPHP\\Lsp\\Handler\\AstPositionResolver",
             ]
         },
         "LessThanNegotiation": {
@@ -1269,7 +1360,16 @@
                 // The static-prop branch's `propertyItem()` has the
                 // identical expression and is already covered via
                 // its existing class-level ignore.
-                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::itemsForClass"
+                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::itemsForClass",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeExcludedDirs",
+                "XPHP\\Lsp\\Reflection\\FqnIndex::iterator",
             ]
         },
 
@@ -1362,7 +1462,22 @@
                 "XPHP\\Lsp\\Resolver\\ReferenceFinder::resolveTargetAt",
                 "XPHP\\Lsp\\Resolver\\ImportCodeActionProvider",
                 "XPHP\\Lsp\\Handler\\XphpCallHierarchyHandler",
-                "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker"
+                "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeExcludedDirs",
             ]
         },
         "GreaterThanOrEqualToNegotiation": {
@@ -1427,7 +1542,14 @@
                 // -- the source flag is already a bool; the cast is defensive
                 // against a null/absent attribute, and the scalar branch is
                 // asserted by the "no implement fix for a scalar concrete" case.
-                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData"
+                "XPHP\\Lsp\\Analyzer\\WorkspaceAnalyzer::buildBoundFixData",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Project\\XphpManifest",
             ]
         },
         "UnwrapArraySlice": {
@@ -1627,7 +1749,14 @@
         // string in each.
         "UnwrapRtrim": {
             "ignore": [
-                "XPHP\\Lsp\\Reflection\\ReflectorFactory::cacheRoot"
+                "XPHP\\Lsp\\Reflection\\ReflectorFactory::cacheRoot",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Project\\XphpManifest",
             ]
         },
         "Ternary": {
@@ -1666,7 +1795,23 @@
                 // !== '<missing>' ? $propType : null` detail-field
                 // type guard.  Mirrors `propertyItem()`'s existing
                 // pattern.
-                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::itemsForClass"
+                "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::itemsForClass",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Project\\XphpManifest",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeRoots",
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
             ]
         },
 
@@ -1770,6 +1915,16 @@
                 // XphpImplementationHandler -- same MVP-walk pattern as XphpTypeHierarchyHandler; see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::implementation",
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::forEachClassLikeInWorkspace",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeRoots",
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeExcludedDirs",
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
             ]
         },
 
@@ -2078,7 +2233,24 @@
                 "XPHP\\Lsp\\Resolver\\ReferenceFinder::declaresMember",
                 "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker",
                 "XPHP\\Lsp\\Resolver\\GenericResolver::resolvePropertyFetch",
-                "XPHP\\Lsp\\Resolver\\GenericResolver::findPropertyType"
+                "XPHP\\Lsp\\Resolver\\GenericResolver::findPropertyType",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                "XPHP\\Lsp\\Project\\XphpManifest",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
+                "XPHP\\Lsp\\Reflection\\FqnIndex::iterator",
             ]
         },
         "Continue_": {
@@ -2127,7 +2299,16 @@
                 // source. The mixed-types-in-one-stmt case for `GroupUse`
                 // IS reachable and is covered by
                 // ClassNameImportContextTest::testExtractKeepsAllItemsInGroupUseEvenWithFunctionMixedIn.
-                "XPHP\\Lsp\\Resolver\\ClassNameImportContext"
+                "XPHP\\Lsp\\Resolver\\ClassNameImportContext",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeRoots",
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
             ]
         },
         "Foreach_": {
@@ -2152,6 +2333,14 @@
                 "XPHP\\Lsp\\Handler\\XphpCallHierarchyHandler",
                 // XphpImplementationHandler -- same MVP-walk pattern as XphpTypeHierarchyHandler; see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::forEachClassLikeInWorkspace",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeExcludedDirs",
             ]
         },
         "While_": {
@@ -2203,6 +2392,14 @@
                 "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker",
                 // XphpImplementationHandler -- same MVP-walk pattern as XphpTypeHierarchyHandler; see top-of-mutators rationale.
                 "XPHP\\Lsp\\Handler\\XphpImplementationHandler::cloneWithResolvedNames",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::normalizeExcludedDirs",
             ]
         },
         // TypeUnionSplitter tail mutants (Cycle K).
@@ -2280,7 +2477,22 @@
                 // XphpFileWatcherHandler::didChangeWatchedFiles
                 // `$skippedOpen++` -- same observability-counter
                 // rationale as DecrementInteger above.
-                "XPHP\\Lsp\\Handler\\XphpFileWatcherHandler::didChangeWatchedFiles"
+                "XPHP\\Lsp\\Handler\\XphpFileWatcherHandler::didChangeWatchedFiles",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
             ]
         },
         // Cycle K.1 tail mutants -- these survive after the bulk-
@@ -2527,7 +2739,14 @@
                 // differs when skippedOpen=0, in which case the only
                 // observable is whether the "skipped invalidation"
                 // stderr line is emitted.  Stderr is muted in tests.
-                "XPHP\\Lsp\\Handler\\XphpFileWatcherHandler::didChangeWatchedFiles"
+                "XPHP\\Lsp\\Handler\\XphpFileWatcherHandler::didChangeWatchedFiles",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
             ]
         },
         // Cycle K.1 ReferenceFinder fan-out: array_unique / array_values
@@ -2607,7 +2826,22 @@
                 "XPHP\\Lsp\\Resolver\\PhpCompletionResolver::itemsForClass",
                 "XPHP\\Lsp\\Resolver\\OptimizeImportsCodeActionProvider",
                 "XPHP\\Lsp\\Handler\\XphpCallHierarchyHandler",
-                "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker"
+                "XPHP\\Lsp\\Analyzer\\ConstructorArgumentChecker",
+                // v0.3.0 sprint: equivalent boundary / defensive-guard
+                // mutants in backward index-scanning + path resolution,
+                // same family already ignored for TurbofishScanner /
+                // TypeArgPositionDetector / BoundExprView. Pinned by
+                // ClosureTypePositionDetectorTest / XphpManifestTest /
+                // AstPositionResolverTest (see WI-13 review).
+                "XPHP\\Lsp\\Handler\\ClosureTypePositionDetector",
+                // v0.3.0 sprint (WI-13): multi-root filesystem walk +
+                // root/excluded-dir normalization -- boundary / defensive
+                // guards + realpath ternaries whose flips round-trip on the
+                // is_dir/realpath-guarded inputs the tests use ($seen value
+                // is isset-checked, realpath==path on non-symlink roots).
+                // Pinned by FqnIndexMultiRootTest; same fs-walk family the
+                // file is already cycle-ignored for elsewhere.
+                "XPHP\\Lsp\\Reflection\\FqnIndex::buildFilesystemIndex",
             ]
         },
         "Break_": {

@@ -42,6 +42,15 @@ final class TypeUnionSplitterTest extends TestCase
         yield 'self/parent dropped' => ['self|parent', []];
         yield 'bool keyword dropped' => ['true|false', []];
 
+        // xphp 0.3.0 stopped aliasing Integer/Boolean/Double to scalars --
+        // they now resolve as CLASS names. The splitter treats the
+        // capitalized spellings as class atoms (the lowercase canonical
+        // scalars int/bool/float are still dropped, above).
+        yield 'Integer is a class not a scalar' => ['Integer', [['Integer']]];
+        yield 'Boolean is a class not a scalar' => ['Boolean', [['Boolean']]];
+        yield 'Double is a class not a scalar' => ['Double', [['Double']]];
+        yield 'capitalized alias in intersection' => ['Integer&App\\Comparable', [['Integer', 'App\\Comparable']]];
+
         // Dedup: same FQN repeated in an intersection collapses to
         // one entry.
         yield 'dedup within intersection' => ['A&A&B', [['A', 'B']]];

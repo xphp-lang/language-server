@@ -59,6 +59,50 @@ final class XphpHoverHandlerTest extends TestCase
         self::assertStringContainsString('Stringable', $text);
     }
 
+    public function testHoverOverMethodTypeParamBoundedByEnclosingClassParam(): void
+    {
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Box<out E>
+        {
+            public function contains<U : E>(U $value): bool { return true; }
+        }
+        XPHP);
+        // Cursor on the `U` of the parameter type `U $value`.
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'U $value');
+
+        self::assertInstanceOf(Hover::class, $hover);
+        $text = $hover->contents->value;
+        self::assertStringContainsString('Type parameter', $text);
+        self::assertStringContainsString('`U`', $text);
+        // Owner is rendered as Class::method, and the bound resolves to the
+        // enclosing class param `E`.
+        self::assertStringContainsString('App\\Box::contains', $text);
+        self::assertStringContainsString('bounded by `E`', $text);
+    }
+
+    public function testMethodTypeParamShadowsSameNamedClassParam(): void
+    {
+        [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
+        <?php
+        namespace App;
+        class Box<T>
+        {
+            public function pick<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        // Cursor on the `T` of the parameter type `T $x`. Both the class and the
+        // method declare `T`; the method's binding is innermost and must win --
+        // the owner is the method, not the class.
+        $hover = $this->hoverAt($handler, $uri, $workspace->get($uri)->text, 'T $x');
+
+        self::assertInstanceOf(Hover::class, $hover);
+        $text = $hover->contents->value;
+        self::assertStringContainsString('Type parameter', $text);
+        self::assertStringContainsString('App\\Box::pick', $text);
+    }
+
     public function testHoverOverTypeParamShowsIntersectionBound(): void
     {
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
@@ -80,11 +124,11 @@ final class XphpHoverHandlerTest extends TestCase
 
     public function testHoverShowsCovariantMarker(): void
     {
-        // Covariant `+T` is only allowed in output (return) positions.
+        // Covariant `out T` is only allowed in output (return) positions.
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        class Producer<+T>
+        class Producer<out T>
         {
             public function get(): T { }
         }
@@ -93,17 +137,17 @@ final class XphpHoverHandlerTest extends TestCase
 
         self::assertInstanceOf(Hover::class, $hover);
         $text = $hover->contents->value;
-        self::assertStringContainsString('`+T`', $text);
+        self::assertStringContainsString('`out T`', $text);
         self::assertStringContainsString('covariant', $text);
     }
 
     public function testHoverShowsContravariantMarker(): void
     {
-        // Contravariant `-T` is only allowed in input (parameter) positions.
+        // Contravariant `in T` is only allowed in input (parameter) positions.
         [$handler, $workspace, $uri] = $this->prepare(<<<'XPHP'
         <?php
         namespace App;
-        class Consumer<-T>
+        class Consumer<in T>
         {
             public function put(T $item): void { }
         }
@@ -112,7 +156,7 @@ final class XphpHoverHandlerTest extends TestCase
 
         self::assertInstanceOf(Hover::class, $hover);
         $text = $hover->contents->value;
-        self::assertStringContainsString('`-T`', $text);
+        self::assertStringContainsString('`in T`', $text);
         self::assertStringContainsString('contravariant', $text);
     }
 

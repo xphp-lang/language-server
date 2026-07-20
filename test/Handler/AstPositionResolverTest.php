@@ -59,6 +59,56 @@ final class AstPositionResolverTest extends TestCase
         self::assertSame('Box', (string) $hit['classScope'][0]->name);
     }
 
+    public function testCapturesEnclosingMethodScopeForMethodTypeParamLookups(): void
+    {
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+        class Box<out E>
+        {
+            public function contains<U : E>(U $value): bool { return true; }
+        }
+        XPHP;
+        $ast = $this->parse($source);
+
+        // Offset of the `U` in the parameter type `U $value` (the `<U : E>`
+        // clause is whitespace-stripped, so this is the resolvable Name).
+        $offset = strpos($source, 'U $value');
+        $hit = AstPositionResolver::nameAtOffset($ast, $offset);
+
+        self::assertNotNull($hit);
+        self::assertSame('U', $hit['name']->toString());
+        // Both scopes are captured: the class (for the enclosing `E`) and the
+        // method (which declares `U`).
+        self::assertCount(1, $hit['classScope']);
+        self::assertSame('Box', (string) $hit['classScope'][0]->name);
+        self::assertCount(1, $hit['methodScope']);
+        self::assertSame('contains', (string) $hit['methodScope'][0]->name);
+    }
+
+    public function testMethodScopeIsPoppedBetweenSiblingMethods(): void
+    {
+        $source = <<<'XPHP'
+        <?php
+        namespace App;
+        class Box
+        {
+            public function a<T>(T $x): void {}
+            public function b<U>(U $y): void {}
+        }
+        XPHP;
+        $ast = $this->parse($source);
+
+        // Hover the `U` in the SECOND method's `U $y`. If `leaveNode` didn't pop
+        // the first method, methodScope would still carry `a` -- lock it to `b`.
+        $offset = strpos($source, 'U $y');
+        $hit = AstPositionResolver::nameAtOffset($ast, $offset);
+
+        self::assertNotNull($hit);
+        self::assertCount(1, $hit['methodScope']);
+        self::assertSame('b', (string) $hit['methodScope'][0]->name);
+    }
+
     public function testReturnsNullPastEndOfFile(): void
     {
         $source = "<?php\nnew Box();";

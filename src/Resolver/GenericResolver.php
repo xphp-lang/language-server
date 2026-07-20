@@ -35,6 +35,7 @@ use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Reflection\FqnIndex;
 use XPHP\Transpiler\Monomorphize\Specializer;
+use XPHP\Transpiler\Monomorphize\Substitution;
 use XPHP\Transpiler\Monomorphize\TypeParam;
 use XPHP\Transpiler\Monomorphize\TypeRef;
 use XPHP\Transpiler\Monomorphize\XphpSourceParser;
@@ -91,7 +92,7 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
 final class GenericResolver
 {
     /**
-     * @var array<string, array{version: int, scopes: list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>}>
+     * @var array<string, array{version: int, scopes: list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>}>
      */
     private array $cache = [];
 
@@ -308,17 +309,21 @@ final class GenericResolver
         if ($receiverType === null) {
             return null;
         }
-        $classLike = $this->classes->find($receiverType->ref->name);
-        if ($classLike === null) {
+        $declaring = $this->classes->findWithContext($receiverType->ref->name);
+        if ($declaring === null) {
             return null;
         }
+        $classLike = $declaring->classLike;
         if (!$call->name instanceof Identifier) {
             return null;
         }
-        $method = self::findMethod($classLike, $call->name->toString());
-        if ($method === null) {
+        // Walk the extends chain so an inherited generic method specializes on a
+        // subclass receiver (0.3.0 turbofish on a subclass).
+        $found = self::findMethodWithContext($declaring, $call->name->toString(), $this->classes);
+        if ($found === null) {
             return null;
         }
+        [$method] = $found;
         $paramMap = self::paramMapFromReceiver($classLike, $receiverType);
         $paramMap = self::withMethodTurbofish($paramMap, $call, $method);
         // No type params in scope = a plain method on a non-generic receiver;
@@ -336,7 +341,7 @@ final class GenericResolver
             if ($tuple !== null) {
                 [$nullable, $ref] = $tuple;
                 $substituted = self::relativeTypeToReceiver($ref, $receiverType)
-                    ?? Specializer::substituteTypeRef($ref, $paramMap);
+                    ?? Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
                 $returnTypeRendered = (new ResolvedType($substituted, $nullable))->render();
             }
         }
@@ -358,7 +363,7 @@ final class GenericResolver
                 continue;
             }
             [$nullable, $ref] = $tuple;
-            $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+            $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
             $paramTypes[$name] = (new ResolvedType($substituted, $nullable))->render();
         }
 
@@ -904,7 +909,7 @@ final class GenericResolver
             $tuple = self::returnTypeToRef($method->returnType, $paramNames);
             if ($tuple !== null) {
                 [$nullable, $ref] = $tuple;
-                $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+                $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
                 $returnTypeRendered = (new ResolvedType($substituted, $nullable))->render();
             }
         }
@@ -921,14 +926,14 @@ final class GenericResolver
                 continue;
             }
             [$nullable, $ref] = $tuple;
-            $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+            $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
             $paramTypes[$name] = (new ResolvedType($substituted, $nullable))->render();
         }
         return new MethodCallSubstitution($returnTypeRendered, $paramTypes);
     }
 
     /**
-     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>
+     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>
      */
     private function scopesFor(string $uri, int $version, string $text): array
     {
@@ -957,11 +962,11 @@ final class GenericResolver
     }
 
     /**
-     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>
+     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>
      */
     private static function emptyScopes(): array
     {
-        return [['start' => 0, 'end' => PHP_INT_MAX, 'bindings' => []]];
+        return [['start' => 0, 'end' => PHP_INT_MAX, 'bindings' => [], 'history' => []]];
     }
 
     /**
@@ -970,7 +975,7 @@ final class GenericResolver
      * matches and has the widest range, so any nested function scope
      * wins on overlap.
      *
-     * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}> $scopes
+     * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}> $scopes
      * @return array<string, VarBinding|ResolvedType>
      */
     public static function bindingsAt(array $scopes, int $offset): array
@@ -984,7 +989,29 @@ final class GenericResolver
                 $best = $scope;
             }
         }
-        return $best === null ? [] : $best['bindings'];
+        if ($best === null) {
+            return [];
+        }
+        // Flow-sensitive: for each variable, return the binding from the nearest
+        // assignment AT OR BEFORE $offset, so a later reassignment to a different
+        // type doesn't leak backwards onto an earlier hover (a var reassigned
+        // `$x = ...::<string>()` then `$x = ...::<int>()` reads as the right type
+        // at each site). Seeded params/uses carry the scope-start position.
+        $out = [];
+        foreach ($best['history'] as $name => $entries) {
+            $chosen = null;
+            foreach ($entries as $entry) {
+                // @infection-ignore-all GreaterThanOrEqualTo -- distinct assignments
+                // have distinct positions, so `>=` vs `>` never differ (no ties).
+                if ($entry['pos'] <= $offset && ($chosen === null || $entry['pos'] >= $chosen['pos'])) {
+                    $chosen = $entry;
+                }
+            }
+            if ($chosen !== null) {
+                $out[$name] = $chosen['binding'];
+            }
+        }
+        return $out;
     }
 
     /**
@@ -992,7 +1019,7 @@ final class GenericResolver
      * one (top-level) scope.
      *
      * @param list<Node\Stmt> $ast
-     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>
+     * @return list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>
      */
     private function build(array $ast): array
     {
@@ -1014,7 +1041,7 @@ final class GenericResolver
 
         $visitor = new class($scopes, $stack, $useMap, $currentNamespace, $classes, $fqnIndex) extends NodeVisitorAbstract {
             /**
-             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}> $scopes
+             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}> $scopes
              * @param list<int> $stack
              * @param array<string, string> $useMap
              */
@@ -1055,10 +1082,12 @@ final class GenericResolver
                     if ($start < 0 || $end < 0) {
                         return null;
                     }
+                    $seeded = self::seedFromParams($node->params, $this->classes);
                     $this->scopes[] = [
                         'start' => $start,
                         'end' => $end,
-                        'bindings' => self::seedFromParams($node->params, $this->classes),
+                        'bindings' => $seeded,
+                        'history' => self::seedHistory($seeded, $start),
                     ];
                     $this->stack[] = count($this->scopes) - 1;
                     return null;
@@ -1090,6 +1119,7 @@ final class GenericResolver
                         'start' => $start,
                         'end' => $end,
                         'bindings' => $closureBindings,
+                        'history' => self::seedHistory($closureBindings, $start),
                     ];
                     $this->stack[] = count($this->scopes) - 1;
                     return null;
@@ -1122,6 +1152,10 @@ final class GenericResolver
                     return;
                 }
                 $name = $lhs->name;
+                // Position of this assignment's LHS: the binding it produces is
+                // in effect for hovers AT or AFTER this point, until the next
+                // reassignment. Enables flow-sensitive lookup (see bindingsAt).
+                $pos = $lhs->getStartFilePos();
                 $rhs = $node->expr;
 
                 if ($rhs instanceof New_) {
@@ -1136,7 +1170,7 @@ final class GenericResolver
                             $this->classes,
                         );
                     if ($binding !== null) {
-                        $this->writeBinding($name, $binding);
+                        $this->writeBinding($name, $binding, $pos);
                     }
                     return;
                 }
@@ -1150,7 +1184,7 @@ final class GenericResolver
                         $this->currentNamespace,
                     );
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                     return;
                 }
@@ -1162,14 +1196,14 @@ final class GenericResolver
                         $this->currentNamespace,
                     );
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                     return;
                 }
                 if ($rhs instanceof FuncCall) {
                     $resolved = GenericResolver::resolveFuncCall($rhs, $this->fqnIndex);
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                     return;
                 }
@@ -1183,7 +1217,7 @@ final class GenericResolver
                         $this->currentNamespace,
                     );
                     if ($resolved !== null) {
-                        $this->writeBinding($name, $resolved);
+                        $this->writeBinding($name, $resolved, $pos);
                     }
                 }
             }
@@ -1197,10 +1231,31 @@ final class GenericResolver
                 return $this->scopes[$idx]['bindings'];
             }
 
-            private function writeBinding(string $name, VarBinding|ResolvedType $binding): void
+            private function writeBinding(string $name, VarBinding|ResolvedType $binding, int $pos): void
             {
                 $idx = $this->stack[count($this->stack) - 1];
+                // `bindings` is the accumulated (last-wins) map used to resolve
+                // later RHS expressions DURING the walk. `history` additionally
+                // records each assignment's position so a QUERY can pick the
+                // binding in effect at a given offset (flow-sensitive).
                 $this->scopes[$idx]['bindings'][$name] = $binding;
+                $this->scopes[$idx]['history'][$name][] = ['pos' => $pos, 'binding' => $binding];
+            }
+
+            /**
+             * Seed flow-history from an initial binding map (function params,
+             * closure uses) so those bindings are visible from the scope's start.
+             *
+             * @param  array<string, VarBinding|ResolvedType> $bindings
+             * @return array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>
+             */
+            private static function seedHistory(array $bindings, int $pos): array
+            {
+                $history = [];
+                foreach ($bindings as $name => $binding) {
+                    $history[$name] = [['pos' => $pos, 'binding' => $binding]];
+                }
+                return $history;
             }
 
             /**
@@ -1425,7 +1480,7 @@ final class GenericResolver
         ) extends NodeVisitorAbstract {
             /**
              * @param list<NullDerefSite>                                                                       $sites
-             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>}>       $scopes
+             * @param list<array{start: int, end: int, bindings: array<string, VarBinding|ResolvedType>, history: array<string, list<array{pos: int, binding: VarBinding|ResolvedType}>>}>       $scopes
              * @param array<string, string>                                                                     $useMap
              */
             public function __construct(
@@ -1542,10 +1597,15 @@ final class GenericResolver
             return null;
         }
         $classLike = $declaring->classLike;
-        $method = self::findMethod($classLike, $call->name->toString());
-        if ($method === null) {
+        // Walk the extends chain so a generic method inherited from a base class
+        // resolves on a subclass receiver (0.3.0). `$methodContext` is the
+        // DECLARING class's context -- used to qualify the return type against
+        // the file that declared the method, not the subclass's file.
+        $found = self::findMethodWithContext($declaring, $call->name->toString(), $classes);
+        if ($found === null) {
             return null;
         }
+        [$method, $methodContext] = $found;
         $returnType = $method->returnType;
         if ($returnType === null) {
             return null;
@@ -1564,8 +1624,8 @@ final class GenericResolver
         // `static`/`self`/`parent` bind to the receiver's concrete type.
         $relative = self::relativeTypeToReceiver($ref, $receiverType);
         $substituted = $relative
-            ?? ($isGeneric ? Specializer::substituteTypeRef($ref, $paramMap) : $ref);
-        $substituted = self::qualifyTypeRef($substituted, $declaring, $classes);
+            ?? ($isGeneric ? Specializer::substituteTypeRef($ref, Substitution::of($paramMap)) : $ref);
+        $substituted = self::qualifyTypeRef($substituted, $methodContext, $classes);
 
         // Gap 2: a non-generic method used to bail to null (defer to
         // worse-reflection). Now we OWN it -- so chains continue
@@ -1651,7 +1711,7 @@ final class GenericResolver
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
         // A property typed as a bare class name (`?User`) resolves to an
         // UNqualified TypeRef (the resolver runs no NameResolver). That renders
         // fine for a terminal hover, but a chained access
@@ -1878,7 +1938,7 @@ final class GenericResolver
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
         return new ResolvedType($substituted, $nullable);
     }
 
@@ -1956,7 +2016,7 @@ final class GenericResolver
         if ($ref === null) {
             return null;
         }
-        $substituted = Specializer::substituteTypeRef($ref, $paramMap);
+        $substituted = Specializer::substituteTypeRef($ref, Substitution::of($paramMap));
         return new ResolvedType($substituted, $nullable);
     }
 
@@ -1966,6 +2026,51 @@ final class GenericResolver
             if (strcasecmp($method->name->toString(), $name) === 0) {
                 return $method;
             }
+        }
+        return null;
+    }
+
+    /**
+     * Find `$name` on the receiver's class, walking the `extends` chain when the
+     * receiver's own class doesn't declare it. xphp 0.3.0 allows a generic
+     * method inherited from a base class to be called with turbofish on a
+     * subclass receiver (`$child->m::<int>()`); the method's generic params live
+     * on the DECLARING class, so we return the `ClassMethod` together with that
+     * class's context (needed to qualify its return type against the file that
+     * declared it). Parent names are resolved against each class's own declaring
+     * context; a `seen` set guards against extends cycles.
+     *
+     * @return array{0: ClassMethod, 1: ClassLikeContext}|null
+     */
+    private static function findMethodWithContext(
+        ClassLikeContext $context,
+        string $name,
+        ClassLikeLookup $classes,
+    ): ?array {
+        $seen = [];
+        $current = $context;
+        while ($current !== null) {
+            $method = self::findMethod($current->classLike, $name);
+            if ($method !== null) {
+                return [$method, $current];
+            }
+            $class = $current->classLike;
+            if (!$class instanceof Node\Stmt\Class_ || $class->extends === null) {
+                return null;
+            }
+            $parent = $class->extends;
+            // A fully-qualified `extends \App\Base` is absolute; anything else
+            // (bare `Base`, namespace-relative `Sub\Base`, aliased `F\Base`) must
+            // be resolved against THIS class's own use-map + namespace, since an
+            // ancestor may live in a different file/namespace than the receiver.
+            $qualified = $parent instanceof Node\Name\FullyQualified
+                ? ltrim($parent->toString(), '\\')
+                : (self::resolveNameWithUseMap($parent, $current->useMap, $current->namespace) ?? ltrim($parent->toString(), '\\'));
+            if (isset($seen[$qualified])) {
+                return null;
+            }
+            $seen[$qualified] = true;
+            $current = $classes->findWithContext($qualified);
         }
         return null;
     }

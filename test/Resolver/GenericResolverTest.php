@@ -492,6 +492,154 @@ final class GenericResolverTest extends TestCase
         self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
     }
 
+    public function testNullsafeMethodTurbofishSpecializesReturnType(): void
+    {
+        // xphp 0.3.0: a generic method called with turbofish through a NULLSAFE
+        // receiver (`$u?->identity::<int>(...)`). The method's T binds to the
+        // call-site type arg exactly as the plain `->` form; the `?->` operator
+        // then makes the specialized return nullable (`int` -> `?int`),
+        // consistent with the resolver's other nullsafe paths.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Util.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Util {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Util;
+        $u = new Util();
+        $i = $u?->identity::<int>(99);
+        $s = $u?->identity::<string>('world');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('?int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('?string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
+    public function testInheritedGenericMethodTurbofishOnSubclassReceiverSpecializes(): void
+    {
+        // xphp 0.3.0: a generic method DECLARED on a base class, called with
+        // turbofish on a SUBCLASS receiver (`$c->identity::<int>(...)`). The
+        // resolver must walk to the inherited declaration to find T, then bind
+        // it to the call-site type arg.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Base.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Base {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Child.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Child extends Base {}
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Child;
+        $c = new Child();
+        $i = $c->identity::<int>(99);
+        $s = $c->identity::<string>('world');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
+    public function testInheritedGenericMethodTurbofishAcrossNamespaceResolves(): void
+    {
+        // The base lives in a DIFFERENT namespace, imported via `use`. The
+        // extends-chain walk must qualify the parent name against the child's
+        // own use-map (not the receiver's), then find the inherited method.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Base.xphp', <<<'XPHP'
+        <?php
+        namespace App\Lib;
+        class Base {
+            public function identity<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Child.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        use App\Lib\Base;
+        class Child extends Base {}
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Child;
+        $c = new Child();
+        $i = $c->identity::<int>(99);
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+    }
+
+    public function testKeywordNamedGenericMethodTurbofishSpecializes(): void
+    {
+        // xphp 0.3.0 lets a generic method be NAMED with a PHP keyword
+        // (`function list<T>()`), called as `$f->list::<int>(...)`. The parser
+        // stamps the generic attributes normally and the byte scanner is
+        // keyword-agnostic, so this should specialize like any other method.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Foo.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Foo {
+            public function list<T>(T $x): T { return $x; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Foo;
+        $f = new Foo();
+        $i = $f->list::<int>(9);
+        $s = $f->list::<string>('x');
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'i', PHP_INT_MAX));
+        self::assertSame('string', $resolver->resolveVariable('/Use.xphp', 's', PHP_INT_MAX));
+    }
+
+    public function testVariantClassTypeParamConstructorResolvesThroughGetter(): void
+    {
+        // xphp 0.3.0: a covariant class may take its type parameter in a
+        // constructor (`private T $item`), and a covariant getter returns T.
+        // Variance is orthogonal to substitution, so `new Producer::<int>(5)`
+        // then `->get()` resolves to int exactly as an invariant generic would.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Producer.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Producer<out T> {
+            public function __construct(private T $item) {}
+            public function get(): T { return $this->item; }
+        }
+        XPHP);
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        use App\Producer;
+        $p = new Producer::<int>(5);
+        $x = $p->get();
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+
+        self::assertSame('int', $resolver->resolveVariable('/Use.xphp', 'x', PHP_INT_MAX));
+    }
+
     public function testRelativeStaticReturnResolvesToReceiverType(): void
     {
         // Regression for the `generic_method_new_static_turbofish` fixture:
@@ -990,6 +1138,17 @@ final class GenericResolverTest extends TestCase
             '?App\\Models\\User',
             $resolver->resolveVariable('/Use.xphp', 'b', $bOffset),
         );
+        // Directly hovering the seeded bindings inside the closure resolves both.
+        // The CAPTURE ($outer) is the SECOND seeded entry, so this guards against
+        // the seed-history dropping later bindings.
+        self::assertSame(
+            'App\\Containers\\Collection<App\\Models\\User>',
+            $resolver->resolveVariable('/Use.xphp', 'param', strpos($source, '$param->first')),
+        );
+        self::assertSame(
+            'App\\Containers\\Collection<App\\Models\\User>',
+            $resolver->resolveVariable('/Use.xphp', 'outer', strpos($source, '$outer->first')),
+        );
     }
 
     public function testRebuildsBindingsOnDocumentVersionBump(): void
@@ -1070,6 +1229,41 @@ final class GenericResolverTest extends TestCase
             }
         }
         rmdir($dir);
+    }
+
+    public function testReassignedVariableResolvesFlowSensitively(): void
+    {
+        // A variable reassigned to a different method-turbofish result must read
+        // as the type in effect AT each site: a later reassignment must not leak
+        // its type backwards onto an earlier hover.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Use.xphp', <<<'XPHP'
+        <?php
+        namespace App;
+        class Book {}
+        class Box<E>
+        {
+            public function __construct(E ...$e) {}
+            public function map<R>(Closure(E $x): R $fn): Box<R> { return new Box::<R>(); }
+        }
+        $b = new Box::<Book>(new Book());
+        $x = $b->map::<string>(fn (Book $bk): string => 'x');
+        $mid = $x;
+        $x = $b->map::<int>(fn (Book $bk): int => 1);
+        XPHP);
+
+        $resolver = $this->resolver($workspace);
+        $src = $workspace->get('/Use.xphp')->text;
+        // The `$` of each `$x =` assignment is exactly its binding position.
+        $firstAssign = (int) strpos($src, '$x = $b->map::<string>');
+        $secondAssign = (int) strpos($src, '$x = $b->map::<int>');
+
+        // AT the exact first-assignment offset the binding is already in effect
+        // (boundary: pos <= offset), so it reads Box<string>, not the later int.
+        self::assertSame('App\\Box<string>', $resolver->resolveVariable('/Use.xphp', 'x', $firstAssign));
+        self::assertSame('App\\Box<string>', $resolver->resolveVariable('/Use.xphp', 'x', $firstAssign + 5));
+        self::assertSame('App\\Box<int>', $resolver->resolveVariable('/Use.xphp', 'x', $secondAssign));
+        self::assertSame('App\\Box<int>', $resolver->resolveVariable('/Use.xphp', 'x', PHP_INT_MAX));
     }
 
     private function workspace(): PhpactorWorkspace

@@ -51,14 +51,14 @@ Feature: Hover
       """
       <?php
       namespace App;
-      class Producer<+T>
+      class Producer<out T>
       {
           public function get(): T {}
       }
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "T" at line 4 of "/producer.xphp"
-    Then the hover contents contain "`+T`"
+    Then the hover contents contain "`out T`"
     And the hover contents contain "covariant"
 
   Scenario: Hover over a generic method turbofish call shows the specialized signature
@@ -80,7 +80,34 @@ Feature: Hover
       """
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
-    Then the hover contents contain "identity(string $x): string"
+    Then the hover contents contain "identity<T>(string $x): string"
+
+  Scenario: Hover over an inherited generic method turbofish resolves through the base class
+    Given the file at "/Base.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Base
+      {
+          public function identity<T>(T $x): T { return $x; }
+      }
+      """
+    And the file at "/Child.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Child extends Base {}
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Child;
+      $c = new Child();
+      $s = $c->identity::<string>('world');
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "identity" at line 3 of "/Use.xphp"
+    Then the hover contents contain "identity<T>(string $x): string"
 
   Scenario: Hover over a method returning static resolves to the receiver's concrete type
     Given the file at "/Builder.xphp" contains the following lines:
@@ -312,3 +339,52 @@ Feature: Hover
     And the FQN index has been warmed on initialize
     When I request "textDocument/hover" on "profileBio" at line 4 of "/Use.xphp"
     Then the hover contents contain "?string $profileBio"
+
+  Scenario: Hover over a keyword-named generic method turbofish specializes
+    Given the file at "/Foo.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Foo
+      {
+          public function list<T>(T $x): T { return $x; }
+      }
+      """
+    And the file at "/Use.xphp" contains the following lines:
+      """
+      <?php
+      use App\Foo;
+      $f = new Foo();
+      $s = $f->list::<string>('x');
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "list" at line 3 of "/Use.xphp"
+    Then the hover contents contain "list<T>(string $x): string"
+
+  Scenario: Hover over a method type parameter bounded by the enclosing class param
+    Given the file at "/Box.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      class Box<out E>
+      {
+          public function contains<U : E>(U $value): bool { return true; }
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "U $value" at line 4 of "/Box.xphp"
+    Then the hover contents contain "Type parameter"
+    And the hover contents contain "`U`"
+    And the hover contents contain "App\Box::contains"
+    And the hover contents contain "bounded by `E`"
+
+  Scenario: Hover over a Closure signature type shows the structured signature
+    Given the file at "/Sig.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      function h(Closure(int $x, string $y): bool $cb): void {}
+      """
+    And the FQN index has been warmed on initialize
+    When I request "textDocument/hover" on "Closure" at line 2 of "/Sig.xphp"
+    Then the hover contents contain "Closure(int, string): bool"

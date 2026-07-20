@@ -237,9 +237,11 @@ final class XphpCompletionHandlerTest extends TestCase
         $list = $this->complete($workspace, '/Use.xphp', $useSource, strlen($useSource));
 
         $labels = array_map(static fn (CompletionItem $i): string => $i->label, $list->items);
-        // Matches: int + integer (prefix); string ("in" is at position 3 → FQN substring).
+        // Matches: int (prefix); string ("in" is at position 3 → FQN substring).
+        // xphp 0.3.0 dropped the `integer` scalar alias (SCALAR_TYPES holds only
+        // canonical `int`), so `integer` is no longer offered.
         self::assertContains('int', $labels);
-        self::assertContains('integer', $labels);
+        self::assertNotContains('integer', $labels);
         self::assertContains('string', $labels, 'matchesPrefix accepts FQN-substring matches, and "string" contains "in" at offset 3');
         // Does NOT match: any scalar with no "in" substring.
         self::assertNotContains('void', $labels);

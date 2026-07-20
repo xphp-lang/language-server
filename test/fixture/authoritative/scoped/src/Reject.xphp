@@ -1,0 +1,21 @@
+<?php
+declare(strict_types=1);
+namespace App\Scoped;
+
+final class Book
+{
+    public function __construct(public string $name) {}
+}
+
+class Box<E>
+{
+    public function __construct(private E $value) {}
+
+    public function map<R>(Closure(E $x): R $fn): R
+    {
+        return $fn($this->value);
+    }
+}
+
+$box = new Box::<Book>(new Book('PHP'));
+$box->map::<string>(fn(int $x): string => (string) $x);

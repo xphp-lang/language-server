@@ -44,6 +44,9 @@ use Psr\Log\NullLogger;
 use XPHP\Lsp\Analyzer\Analyzer;
 use XPHP\Lsp\Analyzer\ParsedDocumentCache;
 use XPHP\Lsp\Analyzer\WorkspaceAnalyzer;
+use XPHP\Lsp\Diagnostics\AuthoritativeDiagnosticsListener;
+use XPHP\Lsp\Diagnostics\AuthoritativeDiagnosticsStore;
+use XPHP\Lsp\Diagnostics\CompilerCheckRunner;
 use XPHP\Lsp\Diagnostics\XphpDiagnosticsProvider;
 use XPHP\Lsp\Handler\WorkspaceSymbols;
 use XPHP\Lsp\Handler\XphpCompletionHandler;
@@ -69,6 +72,7 @@ use XPHP\Lsp\Handler\XphpPullDiagnosticsHandler;
 use XPHP\Lsp\Handler\XphpSemanticTokensHandler;
 use XPHP\Lsp\Handler\XphpTypeHierarchyHandler;
 use XPHP\Lsp\Handler\XphpWorkspaceSymbolHandler;
+use XPHP\Lsp\Project\XphpManifest;
 use XPHP\Lsp\Reflection\ReflectorFactory;
 use XPHP\Lsp\Reflection\FqnIndex;
 use XPHP\Lsp\Resolver\CompletionIndex;
@@ -132,11 +136,21 @@ final class LspDispatcherFactory implements DispatcherFactory
         // hands us as the project workspace root; an empty string => no
         // filesystem walking (workspace + stubs only).
         $rootPath = $initializeParams->rootPath ?? '';
+        // xphp 0.3.0 `xphp.json` manifest: when the workspace declares one, the
+        // FQN index walks the manifest's source roots (which may live outside
+        // `rootPath`) and prunes its build-output / generated-class-cache dirs
+        // so specialized PHP isn't indexed as source. Absent or malformed
+        // manifest -> null -> the single-`rootPath` walk (never hard-fail).
+        $manifest = $rootPath !== '' ? XphpManifest::discover($rootPath) : null;
+        $extraSourceRoots = $manifest?->sourceRoots() ?? [];
+        $excludedDirs = $manifest !== null
+            ? array_values(array_filter([$manifest->outputDir(), $manifest->cacheDir()]))
+            : [];
         // FqnIndex is the single workspace-wide FQN -> declaration map.
         // Replaces three parallel walks (FilesystemSourceLocator's private
         // map, WorkspaceSymbols' open-doc walk, WorkspaceClassLikeLookup's
         // open-doc walk).  Phase-0 of the LSP follow-up roadmap.
-        $fqnIndex = new FqnIndex($workspace, $cache, $xphpParser, $rootPath);
+        $fqnIndex = new FqnIndex($workspace, $cache, $xphpParser, $rootPath, $extraSourceRoots, $excludedDirs);
         $reflector = (new ReflectorFactory(
             $workspace,
             $cache,
@@ -175,7 +189,14 @@ final class LspDispatcherFactory implements DispatcherFactory
         // on property access through a generic method's return type can
         // resolve via the substituted receiver class.
         $phpDefinitionResolver = new PhpDefinitionResolver($workspace, $xphpParser, $reflector, $cache, $genericResolver);
-        $phpHoverResolver = new PhpHoverResolver($workspace, $xphpParser, $reflector, $genericParams, $genericResolver);
+        $phpHoverResolver = new PhpHoverResolver($workspace, $xphpParser, $reflector, $genericParams, $genericResolver, $fqnIndex);
+
+        // Authoritative (on-save) diagnostics tier: the compiler's own
+        // whole-project `check()` produces the grounded, call-argument closure
+        // conformance + bound diagnostics the tolerant per-keystroke pass can't.
+        // Its results land in this store; the provider merges them into each open
+        // document's publish so both tiers reach the client in one message.
+        $authoritativeStore = new AuthoritativeDiagnosticsStore();
 
         $diagnosticsProvider = new XphpDiagnosticsProvider(
             $cache,
@@ -188,6 +209,7 @@ final class LspDispatcherFactory implements DispatcherFactory
             // Type-inference engine for the conservative null-dereference
             // diagnostic (xphp.null-deref) on chained nullable receivers.
             $genericResolver,
+            $authoritativeStore,
         );
 
         $diagnosticsEngine = new DiagnosticsEngine(
@@ -226,6 +248,11 @@ final class LspDispatcherFactory implements DispatcherFactory
             // pay the ~500ms filesystem-walk cost in-band.  Async via
             // Amp\asyncCall -- doesn't block the initialize handshake.
             new \XPHP\Lsp\Reflection\FqnIndexWarmer($fqnIndex),
+            // Multi-root (Track A): when a file from a project OUTSIDE the
+            // workspace root is opened, fold that project's source roots into the
+            // FQN index so navigation resolves its symbols. Keys purely off the
+            // opened file's path -- no editor-specific signal.
+            new \XPHP\Lsp\Reflection\OpenedProjectIndexer($fqnIndex),
             // Perf #1: warm ParsedDocumentCache with every filesystem-
             // indexed file so the cold first `textDocument/references`
             // (codeLens click, Alt+F7) skips the per-file parse step --
@@ -233,6 +260,18 @@ final class LspDispatcherFactory implements DispatcherFactory
             // Runs on the same Initialized event, independently of the
             // FQN warmer above; both are asyncCall-dispatched.
             new \XPHP\Lsp\Analyzer\ParsedDocumentCacheWarmer($fqnIndex, $cache, $workspace),
+            // On-save authoritative diagnostics: run the compiler's whole-project
+            // `check()` and publish. Registered BEFORE $diagnosticsService so the
+            // authoritative store is refreshed ahead of the engine's own on-save
+            // pass, which then publishes open docs with both tiers merged. Inert
+            // when $rootPath is empty (e.g. the behat harness), like the FQN index.
+            new AuthoritativeDiagnosticsListener(
+                new CompilerCheckRunner($rootPath),
+                $authoritativeStore,
+                static fn (string $uri, ?int $version, array $diagnostics)
+                    => $clientApi->diagnostics()->publishDiagnostics($uri, $version, $diagnostics),
+                $workspace,
+            ),
             $diagnosticsService,
         );
 
@@ -379,7 +418,7 @@ final class LspDispatcherFactory implements DispatcherFactory
             new ErrorHandlingMiddleware($this->logger),
             new InitializeMiddleware($handlers, $eventDispatcher, [
                 'name' => 'xphp-lsp',
-                'version' => '0.2.5',
+                'version' => '0.3.0',
             ]),
             new ShutdownMiddleware($eventDispatcher),
             new ResponseHandlingMiddleware($responseWatcher),

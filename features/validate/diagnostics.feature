@@ -104,7 +104,7 @@ Feature: Diagnostics
       """
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
-    Then a "xphp.bound" diagnostic is reported saying "no default"
+    Then a "xphp.missing_type_argument" diagnostic is reported saying "no default"
 
   Scenario: Report a constructor argument-type mismatch
     Given the file at "/StringableBox.xphp" contains the following lines:
@@ -198,4 +198,30 @@ Feature: Diagnostics
       """
     And the FQN index has been warmed on initialize
     When I analyze "/Use.xphp" for diagnostics
+    Then no diagnostics are reported
+
+  Scenario: Flag a closure literal that violates its declared Closure signature return
+    Given the file at "/Factory.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      function make(): Closure(): int {
+          return fn(): string => 'x';
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Factory.xphp" for diagnostics
+    Then a "xphp.closure_conformance" diagnostic is reported saying "return type"
+
+  Scenario: A conforming closure literal reports nothing
+    Given the file at "/Ok.xphp" contains the following lines:
+      """
+      <?php
+      namespace App;
+      function make(): Closure(int $x): bool {
+          return fn(int $x): bool => true;
+      }
+      """
+    And the FQN index has been warmed on initialize
+    When I analyze "/Ok.xphp" for diagnostics
     Then no diagnostics are reported

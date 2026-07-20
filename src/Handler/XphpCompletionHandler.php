@@ -125,6 +125,16 @@ final class XphpCompletionHandler implements Handler, CanRegisterCapabilities
             return new Success(new CompletionList(isIncomplete: false, items: $candidates));
         }
 
+        // A type token inside a `Closure(int $x, string $y): bool` signature type
+        // is an unbounded type position -- offer class names + scalars, the same
+        // candidate set a bound-free turbofish slot gets.
+        $closureHit = ClosureTypePositionDetector::detect($item->text, $offset);
+        if ($closureHit !== null) {
+            $importContext = ClassNameImportContext::extractFromSource($item->text);
+            $candidates = $this->buildCandidates($closureHit['prefix'], null, $importContext);
+            return new Success(new CompletionList(isIncomplete: false, items: $candidates));
+        }
+
         // Fall through to PHP-semantic completion (member / static access).
         // Returns an empty list when the cursor isn't in a recognised
         // context, which matches the old "empty list, no fallback" behaviour
