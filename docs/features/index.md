@@ -212,6 +212,14 @@ property / native function info, hover renders:
   return, or property position, rendered as its structured form
   (`Closure(int, string): bool`) -- params without names, nullable and
   composite (union / intersection) members preserved.
+- A generic **method's** own signature with its type-parameter clause
+  and `Closure(...)` signature params restored -- hovering a call to
+  `map<R>(Closure(E $x): R $fn): List<R>` renders `map<R>(Closure(E): R
+  $fn): ...` rather than the generics-erased `map(Closure $fn)` form.
+  Inherited generic methods resolve against the declaring base class.
+- A local variable's type is resolved **flow-sensitively**: a variable
+  reassigned to different generic types reads as the type in effect at
+  the cursor, not the last assignment in the file.
 
 ### Signature Help
 
@@ -441,6 +449,18 @@ never shadows the `.xphp` original). A file reachable through more
 than one root is indexed once. An absent or malformed manifest falls
 back to the single workspace root -- the server never hard-fails on a
 bad manifest.
+
+Opening a file from a **sibling project outside the workspace root**
+extends this on the fly: on `textDocument/didOpen`, the server walks up
+from the opened file to its own nearest `xphp.json` and folds that
+project's source roots into the index. So with the workspace rooted at
+one project, opening a file from a neighbouring package makes its
+symbols resolve for go-to-definition, find-references, completion and
+rename -- even though the server tracks only a single legacy `rootPath`
+and does not read `workspaceFolders`. The newly-registered roots are
+warmed off-thread so the first navigation into the sibling isn't cold.
+Duplicate FQNs across projects blend by proximity (nearest declaration
+to the working file), not hard per-project isolation.
 
 ### AST cache (warmed on Initialize)
 
