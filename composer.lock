@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4d60984500e0e8de35fd334981745ac4",
+    "content-hash": "ac3197c500e94ee803e89faabffbaee3",
     "packages": [
         {
             "name": "amphp/amp",
@@ -2824,16 +2824,16 @@
         },
         {
             "name": "xphp-lang/xphp",
-            "version": "0.3.x-dev",
+            "version": "v0.3.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/xphp-lang/xphp.git",
-                "reference": "db66de1f4ff73e728c1a8cd708a1762cfec04d4e"
+                "reference": "9bc1ff4adf6cbede40ff5f7621ac9442a5eeb24d"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/xphp-lang/xphp/zipball/db66de1f4ff73e728c1a8cd708a1762cfec04d4e",
-                "reference": "db66de1f4ff73e728c1a8cd708a1762cfec04d4e",
+                "url": "https://api.github.com/repos/xphp-lang/xphp/zipball/9bc1ff4adf6cbede40ff5f7621ac9442a5eeb24d",
+                "reference": "9bc1ff4adf6cbede40ff5f7621ac9442a5eeb24d",
                 "shasum": ""
             },
             "require": {
@@ -2880,7 +2880,7 @@
                 "issues": "https://github.com/xphp-lang/xphp/issues",
                 "source": "https://github.com/xphp-lang/xphp"
             },
-            "time": "2026-07-14T20:20:15+00:00"
+            "time": "2026-07-20T11:18:35+00:00"
         }
     ],
     "packages-dev": [
@@ -4679,9 +4679,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "xphp-lang/xphp": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
