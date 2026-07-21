@@ -757,6 +757,59 @@ final class PhpHoverResolverTest extends TestCase
         self::assertStringNotContainsString('App\\Containers\\T', $markdown);
     }
 
+    public function testVariableFastPathRendersResolvedBindingExactly(): void
+    {
+        // Hover-latency fast-path: hovering a plain `$var` whose type the
+        // GenericResolver can pin from an in-file binding renders directly,
+        // BEFORE (and without) the expensive reflectOffset.  Locks the exact
+        // `<type> $<name>` output the fast-path emits so a Concat mutant on
+        // its `sprintf('%s $%s', ...)` is caught.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Collection.xphp', <<<'XPHP'
+        <?php
+        namespace App\Containers;
+        class Collection<T> {
+            public function first(): ?T { return null; }
+        }
+        XPHP);
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\necho \$users;\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, 'echo $users', strlen('echo '));
+
+        self::assertSame(
+            "```php\nApp\\Containers\\Collection<App\\Models\\User> \$users\n```",
+            $this->markdown($hover),
+        );
+    }
+
+    public function testVariableFastPathDoesNotHijackMethodHover(): void
+    {
+        // Scoping guard: the fast-path must fire ONLY when the cursor is
+        // inside a `Variable` node's span.  A cursor on the method name in
+        // `$users->first` is NOT on the `$users` Variable, so the fast-path
+        // must decline and the method hover must still render.
+        $workspace = $this->workspace();
+        $this->open($workspace, '/Collection.xphp', <<<'XPHP'
+        <?php
+        namespace App\Containers;
+        class Collection<T> {
+            public function first(): ?T { return null; }
+        }
+        XPHP);
+        $this->open($workspace, '/User.xphp', "<?php\nnamespace App\\Models;\nclass User {}\n");
+        $useSource = "<?php\nuse App\\Containers\\Collection;\nuse App\\Models\\User;\n\$users = new Collection::<User>();\n\$users->first();\n";
+        $this->open($workspace, '/Use.xphp', $useSource);
+
+        $hover = $this->hoverAt($workspace, '/Use.xphp', $useSource, '$users->first', strlen('$users->first'));
+        $markdown = $this->markdown($hover);
+
+        // Method signature -- not a bare `... $users` variable render.
+        self::assertStringContainsString('function first', $markdown);
+        self::assertStringContainsString('): ?App\\Models\\User', $markdown);
+    }
+
     public function testMethodHoverSubstitutesReturnTypeAtCallSite(): void
     {
         // Cursor on the `first` token in `$users->first()` -- the method

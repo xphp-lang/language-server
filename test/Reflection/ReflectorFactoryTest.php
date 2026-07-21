@@ -97,6 +97,30 @@ final class ReflectorFactoryTest extends TestCase
         self::assertSame('strlen', (string) $function->name());
     }
 
+    public function testReflectionCacheMemoizesRepeatedLookups(): void
+    {
+        // enableCache() wraps class reflection in a TTL cache, so repeated
+        // reflection of the same FQN within the lifetime returns the SAME
+        // instance instead of rebuilding.  This is what collapses a single
+        // typed-variable hover's stdlib fan-out (and the rapid-fire repeat
+        // hovers PhpStorm issues on one token) from N reflections to one.
+        // A NullCache (the pre-fix default) would rebuild on every call and
+        // the two instances would differ.
+        $workspace = new PhpactorWorkspace();
+        $workspace->open(new TextDocumentItem(
+            '/User.xphp',
+            'xphp',
+            1,
+            "<?php\nnamespace App\\Models;\nfinal class User {}\n",
+        ));
+
+        $reflector = $this->newFactory($workspace, rootPath: $this->emptyRoot())->build();
+
+        $first = $reflector->reflectClass('App\\Models\\User');
+        $second = $reflector->reflectClass('App\\Models\\User');
+        self::assertSame($first, $second, 'reflection cache must return the memoized instance');
+    }
+
     public function testWorkspaceShadowsFilesystemAtSameFqn(): void
     {
         // When both workspace AND filesystem could answer the FQN, workspace

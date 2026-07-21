@@ -7,6 +7,8 @@ namespace XPHP\Lsp\Reflection;
 use Phpactor\LanguageServer\Core\Workspace\Workspace as PhpactorWorkspace;
 use Phpactor\WorseReflection\Reflector;
 use Phpactor\WorseReflection\ReflectorBuilder;
+use Phpactor\WorseReflection\Core\Cache;
+use Phpactor\WorseReflection\Core\Cache\TtlCache;
 use Phpactor\WorseReflection\Core\SourceCodeLocator\StubSourceLocator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -35,12 +37,29 @@ use XPHP\Transpiler\Monomorphize\XphpSourceParser;
  *      (Iterator, Generator, ArrayAccess, ...) for which worse-reflection
  *      ships purpose-built reflections.
  *
- * Why no caching on the Reflector itself: worse-reflection's `enableCache()`
- * uses a TTL cache (default 5s) keyed by reflection class -- useful when
- * one logical user action triggers many reflection lookups (completion
- * after `$obj->|` queries the class repeatedly).  For GTD / hover (one
- * lookup per action) it's wasted complexity.  Revisit if a profile shows
- * repeated lookups in completion.
+ * Reflection cache: `enableCache()` wraps class reflection in a memoizing
+ * cache keyed by reflection name.  We enable it because the premise of "one
+ * lookup per action" is false: worse-reflection reflects the same symbol
+ * many times within a SINGLE `reflectOffset` -- ~12 lookups of one
+ * `ReflectionMethod` per hover per the {@see FilesystemSourceLocator} note,
+ * plus a fan-out across every stdlib symbol on a typed variable's
+ * right-hand side, each of which consults the `StubSourceLocator` and
+ * unserializes the whole phpstorm-stubs map.  Uncached, that work is
+ * redone every time and dominates hover latency.  Memoizing collapses the
+ * intra-hover repeats to one reflection each -- the dominant win, and the
+ * reason a hover lands inside PhpStorm's ~200-300ms cancel window.
+ * Downstream ticket: phpstorm-plugin hover-latency-unindexed-native-symbols.
+ *
+ * Invalidation: the cache is keyed by NAME with no source-version
+ * component, so a stale reflection of a class the user just edited in an
+ * open buffer would otherwise survive.  We inject a shared {@see Cache}
+ * (exposed via {@see reflectionCache}) that `ReflectionCachePurger` flushes
+ * on every `TextDocumentUpdated` -- purges happen BETWEEN hovers, never
+ * during one, so the intra-hover memoization above is fully preserved while
+ * an edit always forces re-reflection on the next hover.
+ *
+ * The throwaway bootstrap reflector below is deliberately left uncached:
+ * it exists only to build the on-disk stub map once and is discarded.
  *
  * Bootstrap caveat: `StubSourceLocator` needs a `Reflector` in its
  * constructor (it uses it to discover FQNs in stub files when building
@@ -62,6 +81,15 @@ final class ReflectorFactory
      *                           workspace / filesystem lookup still works.
      * @param string $cacheDir  Writable dir for the stub map cache.
      */
+    /**
+     * Shared reflection cache handed to the built reflector via
+     * `withCache`.  Held here so the caller can wire it to
+     * `ReflectionCachePurger` for edit-driven invalidation -- see the
+     * class docblock.  Always created (even for the stubs-less reflector)
+     * so the purger wiring is unconditional.
+     */
+    private readonly Cache $reflectionCache;
+
     public function __construct(
         private readonly PhpactorWorkspace $workspace,
         private readonly ParsedDocumentCache $cache,
@@ -71,6 +99,17 @@ final class ReflectorFactory
         private readonly string $cacheDir,
         private readonly FqnIndex $fqnIndex,
     ) {
+        $this->reflectionCache = new TtlCache();
+    }
+
+    /**
+     * The reflection cache backing the reflector this factory builds.
+     * Flush it (via {@see Cache::purge}) when an open document changes so
+     * name-keyed reflections of edited classes don't go stale.
+     */
+    public function reflectionCache(): Cache
+    {
+        return $this->reflectionCache;
     }
 
     public function build(): Reflector
@@ -85,6 +124,8 @@ final class ReflectorFactory
             return ReflectorBuilder::create()
                 ->addLocator($workspaceLocator, priority: 100)
                 ->addLocator($filesystemLocator, priority: 50)
+                ->enableCache()
+                ->withCache($this->reflectionCache)
                 ->build();
         }
 
@@ -106,6 +147,8 @@ final class ReflectorFactory
             ->addLocator($workspaceLocator, priority: 100)
             ->addLocator($filesystemLocator, priority: 50)
             ->addLocator($stubLocator, priority: 25)
+            ->enableCache()
+            ->withCache($this->reflectionCache)
             ->build();
     }
 
