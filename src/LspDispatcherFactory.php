@@ -434,7 +434,7 @@ final class LspDispatcherFactory implements DispatcherFactory
             new ErrorHandlingMiddleware($this->logger),
             new InitializeMiddleware($handlers, $eventDispatcher, [
                 'name' => 'xphp-lsp',
-                'version' => '0.3.0',
+                'version' => '0.3.1',
             ]),
             new ShutdownMiddleware($eventDispatcher),
             new ResponseHandlingMiddleware($responseWatcher),

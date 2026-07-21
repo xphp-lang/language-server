@@ -483,6 +483,28 @@ cache directory resolved from `$XPHP_LSP_CACHE_DIR` -> XDG ->
 fallback. Survives reboots and `/tmp` reaping, so cold-start cost
 is paid once per machine, not once per session.
 
+The stub map is also **warmed off the `initialize` handshake**: on a
+cold machine, building it walks the entire phpstorm-stubs tree, so
+paying it on the first hover would push that hover past the editor's
+hover-cancel window and the popup would never paint. The warmer moves
+the build to a background task at startup, so the first hover over a
+variable whose type involves native functions (`strlen`, `array_map`,
+…) responds promptly.
+
+### Reflection cache (per-session, edit-invalidated)
+
+A single hover on a typed variable makes worse-reflection reflect the
+same symbols many times over -- both the receiver class (repeatedly)
+and every native symbol on the value's right-hand side. Those
+reflections are memoized per session so the repeats within one hover,
+and across the rapid repeat hovers an editor issues as the cursor
+settles, collapse to one reflection each -- the difference between a
+multi-second hover and one that lands inside the hover-cancel window.
+The cache is keyed by symbol name, so it is flushed on every
+`didChange`: an edit to an open buffer is always re-reflected on the
+next hover, never served stale. Flushes land between user actions, so
+they never undo the intra-hover memoization.
+
 ### Tolerant-parse fallback
 
 In-memory locators recover from trailing parse errors so mid-edit
