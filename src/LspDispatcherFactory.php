@@ -151,7 +151,7 @@ final class LspDispatcherFactory implements DispatcherFactory
         // map, WorkspaceSymbols' open-doc walk, WorkspaceClassLikeLookup's
         // open-doc walk).  Phase-0 of the LSP follow-up roadmap.
         $fqnIndex = new FqnIndex($workspace, $cache, $xphpParser, $rootPath, $extraSourceRoots, $excludedDirs);
-        $reflector = (new ReflectorFactory(
+        $reflectorFactory = new ReflectorFactory(
             $workspace,
             $cache,
             $xphpParser,
@@ -159,7 +159,8 @@ final class LspDispatcherFactory implements DispatcherFactory
             ReflectorFactory::defaultStubPath(),
             ReflectorFactory::defaultCacheDir(),
             $fqnIndex,
-        ))->build();
+        );
+        $reflector = $reflectorFactory->build();
         // Per-session registry of (namespace, paramName) pairs harvested from
         // generic ClassLike declarations in open documents.  Resolvers query
         // this when formatting type names so a post-strip placeholder
@@ -248,6 +249,21 @@ final class LspDispatcherFactory implements DispatcherFactory
             // pay the ~500ms filesystem-walk cost in-band.  Async via
             // Amp\asyncCall -- doesn't block the initialize handshake.
             new \XPHP\Lsp\Reflection\FqnIndexWarmer($fqnIndex),
+            // Hover-latency fix (downstream ticket
+            // hover-latency-unindexed-native-symbols): force the cold
+            // phpstorm-stubs map build off the `Initialized` event so the
+            // first hover on a typed variable -- which fans out into stdlib
+            // reflections -- doesn't pay the multi-second build in-band and
+            // miss PhpStorm's hover-cancel window.  Async, like the FQN
+            // warmer; no-ops gracefully when stubs aren't bundled.
+            new \XPHP\Lsp\Reflection\StubCacheWarmer($reflector),
+            // Correctness guard for the reflection cache enabled above: the
+            // cache is keyed by symbol name with no source-version, so an
+            // edit to an open buffer must flush it or hover/completion would
+            // serve pre-edit reflections.  Purges on every didChange, which
+            // lands between user actions and so never undoes the intra-hover
+            // memoization that makes hover fast.
+            new \XPHP\Lsp\Reflection\ReflectionCachePurger($reflectorFactory->reflectionCache()),
             // Multi-root (Track A): when a file from a project OUTSIDE the
             // workspace root is opened, fold that project's source roots into the
             // FQN index so navigation resolves its symbols. Keys purely off the
@@ -418,7 +434,7 @@ final class LspDispatcherFactory implements DispatcherFactory
             new ErrorHandlingMiddleware($this->logger),
             new InitializeMiddleware($handlers, $eventDispatcher, [
                 'name' => 'xphp-lsp',
-                'version' => '0.3.0',
+                'version' => '0.3.1',
             ]),
             new ShutdownMiddleware($eventDispatcher),
             new ResponseHandlingMiddleware($responseWatcher),

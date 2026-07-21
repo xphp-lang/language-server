@@ -110,6 +110,29 @@ final class PhpHoverResolver
         }
         $document = $this->workspace->get($uri);
         $offset = (new PositionMap($document->text))->positionToOffset($line, $character);
+
+        // Variable fast-path (hover-latency fix, downstream ticket
+        // hover-latency-unindexed-native-symbols): when the cursor sits on a
+        // plain `$var` whose concrete type the GenericResolver can pin from
+        // in-file bindings / parameters, render it directly and skip
+        // reflectOffset -- the single heaviest op in the hover path, which
+        // otherwise fans a typed-variable hover out into stdlib reflection.
+        // This produces exactly the same output the Symbol::VARIABLE branch
+        // would (renderVariable consults resolveVariable first with the same
+        // offset), just without paying for the reflection walk.  Strictly
+        // additive: on ANY miss we fall through to the full worse-reflection
+        // path below, unchanged.
+        $fastVarName = $this->variableNameAtOffset($uri, $offset);
+        if ($fastVarName !== null) {
+            $resolved = $this->genericResolver->resolveVariable($uri, $fastVarName, $offset);
+            if ($resolved !== null) {
+                return new Hover(new MarkupContent(
+                    MarkupKind::MARKDOWN,
+                    self::format(sprintf('%s $%s', $resolved, $fastVarName), ''),
+                ));
+            }
+        }
+
         $stripped = $this->parser->strip($document->text);
         $source = TextDocumentBuilder::create($stripped)->uri($uri)->language('php')->build();
 
@@ -679,6 +702,59 @@ final class PhpHoverResolver
         $traverser->addVisitor($visitor);
         $traverser->traverse($ast);
         return $visitor->hit;
+    }
+
+    /**
+     * If the cursor sits on a plain `$var` token, return the variable's
+     * name (without the leading `$`); otherwise null.  "Plain" means a
+     * {@see Variable} node with a literal string name -- variable-variables
+     * (`$$x`, name is an Expr) are excluded, and property / static-property
+     * name tokens (`$obj->prop`, `Foo::$bar`) are NOT `Variable` nodes so
+     * they never match here.  Used by the variable fast-path to decide
+     * whether it can try `resolveVariable` before the expensive
+     * reflectOffset.
+     */
+    private function variableNameAtOffset(string $uri, int $byteOffset): ?string
+    {
+        if (!$this->workspace->has($uri)) {
+            return null;
+        }
+        $item = $this->workspace->get($uri);
+        try {
+            $ast = $this->parser->parseTolerant($item->text);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($ast === null) {
+            return null;
+        }
+        $visitor = new class($byteOffset) extends NodeVisitorAbstract {
+            public ?string $name = null;
+
+            public function __construct(private readonly int $offset)
+            {
+            }
+
+            public function enterNode(Node $node): null
+            {
+                if ($this->name !== null) {
+                    return null;
+                }
+                if (!$node instanceof Variable || !is_string($node->name)) {
+                    return null;
+                }
+                $start = $node->getStartFilePos();
+                $end = $node->getEndFilePos();
+                if ($start >= 0 && $this->offset >= $start && $this->offset <= $end) {
+                    $this->name = $node->name;
+                }
+                return null;
+            }
+        };
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor($visitor);
+        $traverser->traverse($ast);
+        return $visitor->name;
     }
 
     /**
